@@ -14,7 +14,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-006 | Anti-Fatigue Granular Copy Controls: 1-click Handoff Packet, Code-Only Extractor, Turn Pair, and Prompt/Reply split buttons with toast confirmations. | DNCP-003 | P1 | Open (partial; buttons present, all-harness handoffs and toast acceptance outstanding) |
 | DNCP-007 | Zero-Touch Local AI Gateway Proxy: loopback /v1/chat/completions proxy logging streaming tokens, prompts, and costs for Gemini API, Claude API, Perplexity, and OpenAI. | DNCP-004 | P2 | Open |
 | DNCP-008 | Epistemic Matrix & Knowledge Drift Inspector: visual UI grid showing agent knowledge coverage across 22 repos, drift detection, and 1-click alignment briefs. | DNCP-005 | P2 | Open |
-| DNCP-009 | The Metabolizer & Shared Blackboard: background synthesizer extracting architectural decisions, active blockers, and file locks into a 24h Situational Awareness digest. | DNCP-008 | P2 | Open |
+| DNCP-009 | The Metabolizer & Shared Blackboard: historical background synthesis/24h digest scope; approved provisional first repository digester is explicit opt-in and user-invoked, not scheduled synthesis or required reporting. | DNCP-008 | P2 | Open (partial; bounded deterministic repository evidence/residue and provisional cached comparison implemented; blackboard/background synthesis not implemented) |
 | DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open (partial; DNCP-014 adds only local reuse/intake stdio tools, not live state or handoffs) |
 | DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
@@ -24,7 +24,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 
 ## Evidence and Remaining Acceptance Gates
 
-The following table preserves the **baseline audit**. Subsequent phone-home and
+The following table preserves the **baseline audit**. Subsequent phone-home, digester and
 ownership changes are recorded below; baseline missing-CLI/registry statements
 are historical evidence, not the current checkout state.
 
@@ -135,3 +135,37 @@ does not parse chats; its asset schema and file identity do not resolve chat
 branches/messages. Adopt an appropriate supported interface/shared extraction
 later, not copied collectors or imports from a sibling checkout. None of this
 producer work or the DNCP consumer integration is implemented here.
+
+## Provisional Direction: Repository as the First Digestible Material
+
+The user approved an optional first repository digester as composition of DNCP
+pieces, not a new product or mandatory reporting obligation. `control_plane\digester.py`
+and `cli.py` add explicit `digest register/list/scan/disable`; a flag records only
+opt-in metadata and never triggers scanning. Scan refuses unregistered/disabled
+repositories, pins committed HEAD, and extracts bounded static material without
+working-tree/Git-state modification, executing repository code, installing
+dependencies, LLM calls or external transmission. Phone-home remains optional.
+
+The small material-neutral contract records input material/revision, extractor/
+version/time, source paths/blob/digest/line evidence, material items, coverage/
+errors/exclusions and residue. Residue preserves bounded notable untargeted
+material and repeated observations with counts, explicitly not independence/
+corroboration. Limits and omissions are reported, not indiscriminate source copies.
+
+Cached Fabric comparisons provide candidate matches/rationale/provenance with
+incomplete inventory warnings, not full product-library graph knowledge or proof
+of novelty/trust. Human-review options cover existing capability, potential
+solution review, customize/extend/integrate, new knowledge/idea, defer and reject.
+The destination product owns its library; the incubator is optional. There is
+no automatic adoption, dispatch, source copying, canonical creation, queue
+update, intake submission or promotion.
+
+`tests\test_digester.py` verifies consent enforcement, no flag-triggered scan,
+unchanged source/Git files including dirty files, deterministic revision evidence,
+bounded omissions/residue, actual repetition counts rather than identical display
+prefixes, cached-only comparisons, and CLI behavior without phone-home submission.
+This does not close DNCP-008/009's earlier graph/blackboard/background requirements.
+Syft/SCIP remain conditional specialist candidates, not dependencies of this slice;
+catalog patterns are prior art only. See the README for exact limits and supported
+static formats. No scheduled scan, other material digester, concierge or router
+is implemented.

@@ -366,9 +366,12 @@ class FabricIndex:
             "factory_root": values.get("factory_root"),
         }
 
-    def search(self, query: str = "", kind_filter: str = "", limit: int = 40) -> dict[str, Any]:
+    def search(
+        self, query: str = "", kind_filter: str = "", limit: int = 40, *, initialize: bool = True,
+    ) -> dict[str, Any]:
         """Search across knowledge records and AI conversations with provenance chains."""
-        self.ensure_built()
+        if initialize:
+            self.ensure_built()
         q = query.strip()
         with closing(self._connect()) as conn:
             counts_rows = conn.execute(

@@ -37,7 +37,10 @@ Before declaring v0.1.0 delivered, resolve DNCP-001 packaging/CLI blockers and c
 ## v0.3.0 — The Metabolizer & Epistemic Context Mesh (Planned)
 - **The Epistemic Matrix ("Who Knows What"):** Visual UI grid mapping agents (Antigravity, Copilot, ChatGPT, Gemini, Human) against projects and architectural decisions, flagging context drift in real time.
 - **The Shared Blackboard HUD:** Live bulletin board tracking confirmed decisions, active roadblocks, file locks, and cross-repo dependencies.
-- **The "Metabolizer" Agent:** Background synthesizer extracting crystallized facts and generating 24h Situational Awareness Briefing cards.
+- **The "Metabolizer" Agent:** Historical background synthesis/24h briefing target
+  remains unimplemented. The user-approved provisional first digester is instead
+  opt-in, explicit, bounded and deterministic repository evidence/residue for
+  human review; no scheduled scan or mandatory agent reporting.
 - **Model Context Protocol (MCP) Server:** Native `devnet-context-server` allowing any MCP-compliant agent (Claude Code, Antigravity, Cursor) to pull situational context without human copy-pasting.
 
 DNCP-011 (local model bridge) and DNCP-012 (ALM consumer exchange) remain unscheduled P3 backlog items; the configurable outbound completion client is only partial evidence for DNCP-011. Versions above are scope targets, not release commitments or acceptance records.
@@ -93,3 +96,28 @@ are still gaps. The digital asset catalog handles file/cloud metadata, not chats
 the producer should inspect its collector envelopes, safe hashing/identity, and
 placeholder/link guards before reimplementing. See [BACKLOG.md](BACKLOG.md) for
 concrete paths, ownership handoff, and acceptance gates.
+
+## First Repository Digester (Provisional Direction; Bounded Implementation)
+
+A repository is the first material type DNCP can digest into useful static
+evidence and review proposals. `devnet digest register` stores local opt-in only;
+a later explicit `scan` pins committed HEAD and reads recognized bounded docs/
+manifests/config/Python AST material. Dirty files, source/Git writes, repository
+execution, dependency installation, LLM calls, external transmission, and
+scheduled reporting are outside the slice.
+
+Output includes material/reference/revision, extractor/version/time, evidence
+links/digests/paths/lines, material items, errors/exclusions/limits, and bounded
+untargeted/repeated residue. Counts are frequency, not independent corroboration.
+An already-built Fabric cache supplies provisional candidate matches, not a
+complete product-library graph, novelty proof, or trust judgment. Human review
+may reuse/customize/extend/integrate, propose knowledge, defer or reject; the
+destination product retains ownership and the incubator is optional.
+
+No auto-adoption, code copying, dispatch, canonical creation/promotion, queue
+mutation or phone-home reporting occurs. This composes existing DNCP observation/
+AST/Fabric pieces, not a new product, other digester, concierge or router.
+Specialist SBOM/symbol extractors require demonstrated gaps before adoption.
+See [README.md](README.md) for commands/contract/limits and
+[BACKLOG.md](BACKLOG.md) for bounded acceptance evidence; prior background/
+blackboard and graph-wide delivery gates remain open.

@@ -247,9 +247,101 @@ successful empty answers. Stdio uses SDK negotiation and no HTTP MCP or external
 connections. This bounded capability/intake adapter does **not** finish DNCP-010's
 planned live-state/Metabolizer/handoff server.
 
-Only `serve`, `mcp`, `phone-home`, version/help are implemented CLI commands.
+Only `serve`, `mcp`, `phone-home`, `digest`, version/help are implemented CLI commands.
 Earlier intended status/search/discover/handoff/eval-frames/verify-release CLI
 commands remain unimplemented; their engines/UI are not promises of CLI support.
+
+### Repository metabolizer: first opt-in digester
+
+**Provisional direction:** a repository is the first kind of material the network
+can digest into reviewable evidence, ideas, and reusable capability candidates.
+This is a composition of DNCP observation, Python AST extraction and cached
+Fabric search, not a new product, mandatory agent reporting protocol, or
+centralized owner of other products' libraries. Phone-home remains optional.
+
+Registering records consent metadata only; **it never scans**. A separate explicit
+command reads one pinned committed `HEAD` revision. Unregistered or disabled
+repositories are refused before repository observation:
+
+```powershell
+devnet digest register 'C:\path\to\selected-repository'
+devnet digest list
+devnet digest scan 'C:\path\to\selected-repository' --target 'sqlite reuse'
+devnet digest disable 'C:\path\to\selected-repository'
+```
+
+Use the shared `--data-dir` option before `digest` if needed. Registration lives
+in local `digester.sqlite` outside Git repositories. Output is JSON on stdout;
+redirect it to an explicitly chosen local review file to retain it. The digester
+itself stores no bundles, source copies, scan history, or reports. There is no
+watcher, scheduled scan, forced reporting, automatic intake submission, promotion,
+queue update, code copying, adoption, dispatch, or execution.
+
+**Read-only scope:** the selected repository root is verified using read-only Git
+plumbing, then its commit/tree/blob identities are pinned. Dirty/untracked working
+files, symlinks, submodules, generated/vendor/cache directories, secret-like
+filenames, and recognized token-bearing contents are excluded. Repository Git
+state/config/index and working files are untouched. No repository code, hooks,
+install scripts, filters, or dependencies are executed/installed. Git lazy fetch
+and credential prompting are disabled; missing local objects cause explicit
+failure rather than remote ingestion. No LLM, extractor download, external
+transmission, or paid service is needed. Detection is incomplete: review bundles
+locally and do not transmit potentially sensitive evidence indiscriminately.
+
+The versioned **material-neutral bundle** includes the repository input reference,
+exact revision and committed-view semantics; extractor name/version, Git version
+and observation time; extracted material items; file/blob/SHA-256/path/line
+provenance with literal `git:<revision>:<path>` evidence references; coverage,
+exclusions/errors; residue; cached comparison; and provisional human-review
+options. Module/manifest/config/dependency evidence marks file-level location
+precision rather than claiming a parsed dependency line; symbols/headings and
+notable observations retain their source lines. Display truncations are flagged
+and counted. Evidence references are not clickable remote URLs or instructions.
+`git show <revision>:<path>` can resolve them manually in that repository.
+`evidence_digest` covers stable extracted content and comparison context excluding
+the observation timestamp; identical revision, extractor and cache context give
+the same digest. It does not assert correctness, trust, or file-independent evidence.
+
+Recognized first-slice inputs: Markdown headings/notable TODO/idea/decision/
+limitation/warning lines, bounded Python module docstrings/top-level exported
+symbols/import observations, `package.json` dependency declarations,
+`pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, selected configuration
+files and `.github` YAML configuration. Non-JSON manifest declarations remain
+static evidence, not fully parsed/resolved dependencies. There is no complete
+SBOM, cross-language symbol graph, runtime behavior analysis, or unrestricted
+source summarization. Syft is a candidate only if a resolved dependency/SBOM gap
+is proven; SCIP requires an actual symbol-graph use case. Repomix and LLM calls
+are not prerequisites. Catalog snapshot/identity/triage patterns are prior art,
+not copied modules or runtime imports from another checkout.
+
+Bounds: at most 1 MiB of Git tree metadata (excess is an explicit refusal),
+100 recognized files, 128 KiB per file, 1 MiB total content, 100 material items,
+1,000 notable observations, 30 residue groups with at most three evidence refs
+and 300 display characters each, and ten comparison queries with five cached
+matches each. Files/items/observations beyond limits have counted omissions.
+Repeated full normalized observations get occurrence counts and digests;
+distinct long texts are not merged merely because their display prefixes match.
+Residue retains notable untargeted material and repetitions as **frequency
+signals only**, never independence, corroboration, trust, or fabricated
+serendipity. There is no claim to preserve every possible insight from a repository.
+
+Comparison uses only the **already-built Fabric cache** in the chosen data
+directory; it never initializes/rebuilds that cache or scans other repositories/
+registries/modules. Available capability/product records are only those already
+represented in the cache. Missing/corrupt cache is explicitly unavailable with
+no-match/novelty uncertainty; cache timestamps/root provenance and incomplete
+product-library graph coverage remain visible. Ordinary phone-home checks and
+their optional module discovery are separate operations, not triggered by
+digestion. There is no external component search.
+
+Proposals cite material evidence, query, cached matches/status/provenance, and
+text-relevance rationale. Human options include existing capability, potential
+solution needing suitability/trust review, customize/extend/integrate, new
+knowledge/idea, defer, or reject. Similarity does not prove trust; no match does
+not prove novelty. The destination product owns its library. The incubator is
+an optional human-governed destination, not mandatory ownership or automatic
+canonical record creation. Only the user/product owner chooses what to retain,
+customize, integrate, or set aside.
 
 ### Next round and ownership
 

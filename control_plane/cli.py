@@ -24,6 +24,15 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", choices=["127.0.0.1", "localhost"], default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8780)
     commands.add_parser("mcp", help="Optional official-SDK stdio MCP server")
+    digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
+        dest="digest_operation", required=True,
+    )
+    for name in ("register", "disable", "scan"):
+        sub = digest.add_parser(name)
+        sub.add_argument("repository", type=Path)
+        if name == "scan":
+            sub.add_argument("--target", default="", help="Optional focus; notable untargeted material is retained as residue")
+    digest.add_parser("list")
     phone = commands.add_parser("phone-home").add_subparsers(dest="operation", required=True)
     check = phone.add_parser("check", help="Check reusable capabilities before building")
     check.add_argument("query")
@@ -67,6 +76,22 @@ def dispatch(service: PhoneHome, args: argparse.Namespace) -> Any:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "digest":
+            from .digester import RepositoryDigester
+            from .fabric import FabricIndex
+            digester = RepositoryDigester(
+                args.data_dir, FabricIndex(args.data_dir / "control_plane_fabric.sqlite", args.factory_root),
+            )
+            if args.digest_operation == "list":
+                output = digester.registrations()
+            elif args.digest_operation == "register":
+                output = digester.register(args.repository)
+            elif args.digest_operation == "disable":
+                output = digester.disable(args.repository)
+            else:
+                output = digester.scan(args.repository, args.target)
+            print(json.dumps(output, indent=2, ensure_ascii=False))
+            return 0
         service = PhoneHome(args.factory_root, args.network_root, args.data_dir)
         if args.command == "serve":
             from .ui import ControlPlaneWorkbench, serve_control_plane
