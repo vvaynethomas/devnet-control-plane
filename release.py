@@ -55,6 +55,8 @@ def collect_source_files(pkg_dir: Path) -> list[tuple[str, bytes]]:
         if p.is_file() and not p.name.endswith((".pyc", ".pyo")) and "__pycache__" not in p.parts:
             rel = p.relative_to(pkg_dir.parent).as_posix()
             files.append((rel, p.read_bytes()))
+    registry = pkg_dir.parent / "registry" / "interaction_frames.json"
+    files.append(("control_plane/registry/interaction_frames.json", registry.read_bytes()))
     return files
 
 
@@ -71,6 +73,10 @@ Summary: Autonomous Development Network Control Plane and Interaction Frame Lab
 Author: Development Network Operator
 License: MIT
 Requires-Python: >=3.10
+Provides-Extra: mcp
+Requires-Dist: mcp>=1.30,<2; extra == "mcp"
+Provides-Extra: llm
+Requires-Dist: openai>=1.0.0; extra == "llm"
 Description-Content-Type: text/markdown
 
 # {PACKAGE_NAME}
@@ -139,6 +145,10 @@ def build_sdist(dist_dir: Path, source_files: list[tuple[str, bytes]]) -> Path:
             ti.size = len(data)
             ti.mtime = int(datetime.now(timezone.utc).timestamp())
             tf.addfile(ti, io_bytes(data))
+        registry = PROJECT_DIR / "registry" / "interaction_frames.json"
+        ti = tarfile.TarInfo(f"{sdist_name}/registry/interaction_frames.json")
+        ti.size = registry.stat().st_size
+        tf.addfile(ti, io_bytes(registry.read_bytes()))
 
     return sdist_path
 
@@ -194,7 +204,7 @@ def build_release(output_dir: Path | None = None) -> dict[str, object]:
         "runtime_requirements": {
             "python": ">=3.10",
             "external_dependencies": [],
-            "optional_extras": ["openai>=1.0.0"],
+            "optional_extras": ["openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "artifacts": artifacts,
         "source_inventory": {

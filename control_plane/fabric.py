@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timezone
 import json
 import os
 import re
@@ -72,6 +73,7 @@ def collect_knowledge_entities(factory_root: Path = FACTORY_ROOT) -> dict[str, d
             "kind": fm.get("type", "record"),
             "status": fm.get("status", "draft"),
             "created_date": fm.get("created_date", ""),
+            "tags": fm.get("tags", []),
             "path": rel,
             "abs_path": str(path.resolve()),
             "upstream_refs": fm.get("upstream_refs") if isinstance(fm.get("upstream_refs"), list) else [],
@@ -325,6 +327,13 @@ class FabricIndex:
                         " ".join(item.get("mentioned_ids", []) + item.get("upstream_refs", [])),
                     ),
                 )
+            conn.execute("CREATE TABLE IF NOT EXISTS fabric_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            conn.executemany(
+                "INSERT OR REPLACE INTO fabric_metadata VALUES (?, ?)",
+                [("rebuilt_at", datetime.now(timezone.utc).isoformat()),
+                 ("includes_conversations", json.dumps(include_conversations)),
+                 ("factory_root", str(self.factory_root.resolve()))],
+            )
             conn.commit()
         return {
             "knowledge_entities": len(entities),
@@ -343,9 +352,26 @@ class FabricIndex:
             if cur.fetchone() is None:
                 self.rebuild()
 
-    def search(self, query: str = "", kind_filter: str = "", limit: int = 40) -> dict[str, Any]:
+    def freshness(self) -> dict[str, Any]:
+        """Report cache age without building or reading personal conversations."""
+        if not self.db_path.is_file():
+            return {"built": False, "rebuilt_at": None, "includes_conversations": None, "factory_root": None}
+        with closing(self._connect()) as conn:
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            values = dict(conn.execute("SELECT key, value FROM fabric_metadata")) if "fabric_metadata" in tables else {}
+        return {
+            "built": "fabric_items" in tables,
+            "rebuilt_at": values.get("rebuilt_at"),
+            "includes_conversations": json.loads(values["includes_conversations"]) if "includes_conversations" in values else None,
+            "factory_root": values.get("factory_root"),
+        }
+
+    def search(
+        self, query: str = "", kind_filter: str = "", limit: int = 40, *, initialize: bool = True,
+    ) -> dict[str, Any]:
         """Search across knowledge records and AI conversations with provenance chains."""
-        self.ensure_built()
+        if initialize:
+            self.ensure_built()
         q = query.strip()
         with closing(self._connect()) as conn:
             counts_rows = conn.execute(

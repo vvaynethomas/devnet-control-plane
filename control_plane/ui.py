@@ -5,6 +5,8 @@ from __future__ import annotations
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import secrets
+import sqlite3
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -12,10 +14,12 @@ import webbrowser
 
 from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PACKAGE_VERSION, REGISTRY_PATH
 from .capabilities import discover_capabilities
+from .decision_aid import DECISION_TOPICS, build_decision_aid
 from .fabric import FabricIndex
 from .interaction_lab import InteractionFrameEngine
 from .portfolio import open_repo_location, scan_portfolio
 from .queues import aggregate_queues, match_router_route
+from .phone_home import MAX_REQUEST_BYTES, NOTICE, PhoneHome, PhoneHomeError
 
 
 def _badge(text: str, tone: str = "neutral") -> str:
@@ -269,6 +273,8 @@ class ControlPlaneWorkbench:
         self.factory_root = factory_root
         self.network_root = network_root
         self.data_dir = data_dir
+        self.phone_home = PhoneHome(factory_root, network_root, data_dir)
+        self.phone_home_csrf = secrets.token_urlsafe(32)
         self.fabric = FabricIndex(db_path=data_dir / "control_plane_fabric.sqlite", factory_root=factory_root)
         self.interaction_lab = InteractionFrameEngine(
             registry_path=registry_path,
@@ -723,7 +729,84 @@ class ControlPlaneWorkbench:
         </section>
         """
 
-    def render_capabilities_tab(self, problem_query: str = "") -> str:
+    def render_decision_aid(
+        self, topic: str = "infrastructure-decision", operator_context: str = "",
+        problem_query: str = "",
+    ) -> str:
+        options = "".join(
+            f'<option value="{escape(key)}" {"selected" if key == topic else ""}>'
+            f'{escape(value["title"])}</option>'
+            for key, value in DECISION_TOPICS.items()
+        )
+        form = f"""
+        <section class="panel">
+          <h2>Decision Aid — Review Before Committing</h2>
+          <p class="muted">Read-only guidance from tagged canonical incubator records, not a provider selector or optimizer.</p>
+          <form method="get" action="/">
+            <input type="hidden" name="tab" value="capabilities">
+            <input type="hidden" name="prob" value="{escape(problem_query)}">
+            <label for="aid-topic">Decision topic</label>
+            <select id="aid-topic" name="aid_topic">{options}</select>
+            <label for="aid-context">Operator context &amp; constraints (unverified)</label>
+            <textarea id="aid-context" name="aid_context" style="width:100%;height:80px;"
+              placeholder="Project, required affordances, context/access evidence, operational constraints, alternatives…">{escape(operator_context)}</textarea>
+            <p class="muted">Do not enter secrets. Inputs are not persisted by DNCP, but GET URLs may appear in browser history.</p>
+            <button type="submit" class="btn">Review Canonical Guidance</button>
+          </form>
+        """
+        try:
+            aid = build_decision_aid(self.factory_root, topic, operator_context)
+        except (OSError, ValueError) as exc:
+            return form + f'<p role="alert">Decision aid unavailable: {escape(str(exc))}</p></section>'
+        questions = "".join(f"<li>{escape(question)}</li>" for question in aid["questions"])
+        alternatives = "".join(f"<li>{escape(option)}</li>" for option in aid["alternatives"])
+        cards = []
+        for record in aid["records"]:
+            references = "".join(
+                f'<li>{_chip_link(ref["id"]) if ref["resolved"] else escape(ref["id"])} '
+                f'— {escape(ref["title"])} ({escape(ref["status"])})</li>'
+                for ref in record["upstream_refs"]
+            ) or "<li>No upstream provenance recorded; verify the source before relying on this guidance.</li>"
+            cards.append(f"""
+            <div class="card">
+              <strong>{_chip_link(record['id'])} {escape(record['title'])}</strong>
+              {_badge(record['status'], 'neutral')} {_badge(record['kind'], 'neutral')}
+              <p class="muted">Canonical path: <code>{escape(record['path'])}</code><br>
+                Record date (not freshness verification): {escape(record['created_date'] or 'unknown')}</p>
+              <details><summary>Read canonical guidance &amp; alternatives</summary>
+                <pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{escape(record['body'])}</pre>
+              </details>
+              <details><summary>Upstream source &amp; provenance</summary><ul>{references}</ul></details>
+            </div>
+            """)
+        empty = (
+            '<p role="status">No canonical records with the selected topic tag were found. '
+            'Register provisional records in the incubator; no recommendation can be inferred from absence.</p>'
+        )
+        context = (
+            f'<p><strong>Your context (not verified):</strong> {escape(aid["operator_context"])}</p>'
+            if aid["operator_context"] else
+            '<p class="muted">No project constraints supplied; this is general guidance, not a project-specific recommendation.</p>'
+        )
+        return form + f"""
+          {context}
+          <p class="muted">{escape(aid['uncertainty'])}</p>
+          <div class="grid-2">
+            <div><h3>Questions to resolve</h3><ul>{questions}</ul></div>
+            <div><h3>Alternatives to compare (not ranked)</h3><ul>{alternatives}</ul></div>
+          </div>
+          <p class="muted">Topic tags select records, not readiness. Records are read from the incubator now;
+            rebuild Fabric after canonical changes to refresh its linked entity inspector.</p>
+          {''.join(cards) or empty}
+        </section>
+        """
+
+    def render_capabilities_tab(
+        self, problem_query: str = "", aid_topic: str = "infrastructure-decision",
+        aid_context: str = "",
+    ) -> str:
+        if not self.fabric.freshness()["built"]:
+            self.fabric.rebuild(include_conversations=False)
         cap = discover_capabilities(problem_query, self.factory_root, self.fabric)
         s = cap["summary"]
 
@@ -775,6 +858,8 @@ class ControlPlaneWorkbench:
             )
 
         return f"""
+        {self.render_decision_aid(aid_topic, aid_context, problem_query)}
+        {self.render_phone_home(problem_query)}
         <div class="stats-row">
           <div class="stat-card"><div class="stat-label">Cataloged Capabilities</div><div class="stat-value">{s['total_cataloged_capabilities']}</div><div class="stat-sub">Skills, Runbooks, Patterns, Python Modules</div></div>
           <div class="stat-card"><div class="stat-label">Matching Tools &amp; Modules</div><div class="stat-value">{s['matching_tools_and_modules']}</div><div class="stat-sub">Exploit before building</div></div>
@@ -787,6 +872,8 @@ class ControlPlaneWorkbench:
           <p class="muted">Describe a problem or capability (e.g., <code>sqlite search</code>, <code>rclone cloud</code>, <code>stewardship</code>, <code>duplicate hash</code>, <code>interaction frame</code>) to discover existing tools, modules, patterns, and prior findings.</p>
           <form method="get" action="/" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
             <input type="hidden" name="tab" value="capabilities">
+            <input type="hidden" name="aid_topic" value="{escape(aid_topic)}">
+            <input type="hidden" name="aid_context" value="{escape(aid_context)}">
             <input type="search" name="prob" value="{escape(problem_query)}" placeholder="Describe your problem or needed capability…" style="flex:1;min-width:300px;">
             <button type="submit" class="btn btn-primary">Discover Existing Leverage</button>
             <a class="btn" href="/?tab=capabilities&amp;prob=sqlite+fts5+index">Try: SQLite Index</a>
@@ -812,6 +899,55 @@ class ControlPlaneWorkbench:
             <thead><tr><th>ID / Type</th><th>Capability &amp; Interface</th><th>Exported Symbols / Refs</th><th>Repository Path</th></tr></thead>
             <tbody>{''.join(tool_rows)}</tbody>
           </table>
+        </section>
+        """
+
+    def render_phone_home(self, query: str = "") -> str:
+        try:
+            data = self.phone_home.check(query) if query.strip() else None
+            inbox = self.phone_home.list(limit=10)
+        except (PhoneHomeError, OSError, sqlite3.Error) as exc:
+            return f'<section class="panel"><h2>Network phone-home unavailable</h2><p>{escape(str(exc))}</p></section>'
+        result = f"<pre>{escape(json.dumps(data, indent=2, ensure_ascii=False))}</pre>" if data else ""
+        entries = "".join(
+            f'<li>{escape(item["title"])} (provisional) '
+            f'<a href="/api/phone-home/submissions?id={escape(item["id"])}">Review / JSON export</a></li>'
+            for item in inbox["submissions"]
+        )
+        options = "".join(f'<option value="{kind}">{kind}</option>' for kind in
+                          ("discovery", "tool", "skill", "runbook", "module", "finding", "decision"))
+        return f"""
+        <section class="panel">
+          <h2>Network phone-home: check before building</h2>
+          <p>Order: existing network capability (reuse/customize), battle-tested external component,
+          existing-product extension, then justified standalone product. Stop at sufficient evidence;
+          unknown checks remain unresolved. You make the final choice; nothing is dispatched.</p>
+          <p>{escape(NOTICE)} Do not submit secrets or sensitive material. Local storage is not encrypted.</p>
+          <p>CLI: <code>devnet phone-home check "your need"</code>; API: <code>/api/phone-home/check?q=your+need</code>; MCP: <code>devnet mcp</code>.</p>
+          <form method="get" action="/">
+            <input type="hidden" name="tab" value="capabilities">
+            <input name="prob" maxlength="2000" required value="{escape(query)}" placeholder="What can we reuse?">
+            <button type="submit" class="btn">Check network library</button>
+          </form>
+          {result}
+          <h3>Report a discovery or reusable tool</h3>
+          <form method="post" action="/action/phone-home-submit" style="display:grid;gap:8px;">
+            <input type="hidden" name="csrf" value="{escape(self.phone_home_csrf)}">
+            <label>Kind <select name="kind">{options}</select></label>
+            <label>Title <input name="title" maxlength="200" required></label>
+            <label>Summary <textarea name="summary" maxlength="20000" required></textarea></label>
+            <label>Source repository <input name="source_repo" maxlength="1000" required></label>
+            <label>Reuse-check query (unverified) <input name="reuse_query" maxlength="2000" required value="{escape(query)}"></label>
+            <label>Session reference <input name="source_session" maxlength="1000"></label>
+            <label>Evidence path, URL or commit (not fetched) <input name="source_ref" maxlength="1000"></label>
+            <label>External component evidence (unverified; no live lookup) <textarea name="external_evidence" maxlength="20000"></textarea></label>
+            <label>Related IDs, comma-separated <input name="related_refs"></label>
+            <label>Tags, comma-separated <input name="tags"></label>
+            <button type="submit" class="btn btn-primary">Submit provisional intake</button>
+          </form>
+          <h3>Local provisional inbox ({inbox["total"]} total)</h3>
+          <ul>{entries or '<li>No provisional submissions yet.</li>'}</ul>
+          <a href="/api/phone-home/submissions">List / paginated JSON export</a>
         </section>
         """
 
@@ -1343,6 +1479,7 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(raw)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(raw)
 
@@ -1351,9 +1488,86 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             self.send_header("Location", location)
             self.end_headers()
 
+        def _local_request(self, writing: bool = False) -> bool:
+            host = self.headers.get("Host", "")
+            allowed = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+            if self.server.server_port == 80:
+                allowed.update(("127.0.0.1", "localhost"))
+            if host not in allowed:
+                self._send_json({"error": "loopback Host required"}, 403)
+                return False
+            if writing:
+                origin = self.headers.get("Origin")
+                if origin is not None and origin != f"http://{host}":
+                    self._send_json({"error": "cross-origin writes are not allowed"}, 403)
+                    return False
+            return True
+
+        def _phone_home_get(self, path: str, qs: dict[str, list[str]]) -> None:
+            try:
+                limit = int(qs.get("limit", ["20"])[0])
+                if path == "/api/phone-home/check":
+                    data = workbench.phone_home.check(qs.get("q", [""])[0], limit)
+                elif path == "/api/phone-home/submissions":
+                    sid = qs.get("id", [""])[0]
+                    data = workbench.phone_home.get(sid) if sid else workbench.phone_home.list(
+                        qs.get("q", [""])[0], limit, int(qs.get("offset", ["0"])[0]),
+                    )
+                else:
+                    raise PhoneHomeError("endpoint not found", 404)
+                self._send_json(data)
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                status = getattr(exc, "status", 400 if isinstance(exc, ValueError) else 503)
+                self._send_json({"error": str(exc), "status": status}, status)
+
+        def _phone_home_submit(self, is_form: bool) -> None:
+            try:
+                if self.headers.get("Transfer-Encoding"):
+                    raise PhoneHomeError("Transfer-Encoding is not supported")
+                length_text = self.headers.get("Content-Length", "")
+                if not length_text.isdecimal():
+                    raise PhoneHomeError("valid Content-Length required")
+                length = int(length_text)
+                if length > MAX_REQUEST_BYTES:
+                    raise PhoneHomeError("submission exceeds 64 KiB", 413)
+                media = self.headers.get("Content-Type", "").split(";")[0].strip()
+                expected = "application/x-www-form-urlencoded" if is_form else "application/json"
+                if media != expected:
+                    raise PhoneHomeError(f"Content-Type must be {expected}", 415)
+                self.connection.settimeout(10)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise PhoneHomeError("incomplete request body")
+                if is_form:
+                    form = parse_qs(raw.decode("utf-8"), keep_blank_values=True)
+                    if not secrets.compare_digest(form.get("csrf", [""])[0], workbench.phone_home_csrf):
+                        raise PhoneHomeError("invalid form CSRF token", 403)
+                    payload = {k: v[0] for k, v in form.items() if k != "csrf"}
+                    for field in ("related_refs", "tags"):
+                        payload[field] = [s.strip() for s in payload.get(field, "").split(",") if s.strip()]
+                else:
+                    payload = json.loads(raw.decode("utf-8"))
+                receipt = workbench.phone_home.submit(payload)
+                if is_form:
+                    self._redirect("/?" + urlencode({
+                        "tab": "capabilities", "flash": f"Saved {receipt['id']} as provisional intake, not approval.",
+                    }))
+                else:
+                    self._send_json(receipt, 201)
+            except (ValueError, OSError, sqlite3.Error) as exc:
+                status = getattr(exc, "status", 400 if isinstance(exc, ValueError) else 503)
+                self.close_connection = True
+                self._send_json({"error": str(exc), "status": status}, status)
+
         def do_GET(self) -> None:
+            if not self._local_request():
+                return
             parsed = urlsplit(self.path)
             qs = parse_qs(parsed.query)
+
+            if parsed.path.startswith("/api/phone-home/"):
+                self._phone_home_get(parsed.path, qs)
+                return
 
             if parsed.path == "/api/health":
                 self._send_json({"ok": True, "version": PACKAGE_VERSION})
@@ -1372,6 +1586,20 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             if parsed.path == "/api/capabilities":
                 prob = qs.get("prob", [""])[0]
                 self._send_json(discover_capabilities(prob, workbench.factory_root, workbench.fabric))
+                return
+            if parsed.path == "/api/decision-aid":
+                try:
+                    aid = build_decision_aid(
+                        workbench.factory_root,
+                        topic=qs.get("topic", ["infrastructure-decision"])[0],
+                        operator_context=qs.get("context", [""])[0],
+                    )
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                except OSError as exc:
+                    self._send_json({"error": f"Decision aid unavailable: {exc}"}, status=500)
+                else:
+                    self._send_json(aid)
                 return
             if parsed.path == "/api/handoff":
                 from control_plane.handoff import compile_context_handoff
@@ -1423,7 +1651,11 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                 )
                 self._send_html(_layout("conversations", "Conversations & Tokenomics", body, flash=flash))
             elif tab == "capabilities":
-                body = workbench.render_capabilities_tab(problem_query=qs.get("prob", [""])[0])
+                body = workbench.render_capabilities_tab(
+                    problem_query=qs.get("prob", [""])[0],
+                    aid_topic=qs.get("aid_topic", ["infrastructure-decision"])[0],
+                    aid_context=qs.get("aid_context", [""])[0],
+                )
                 self._send_html(_layout("capabilities", "Capability Discovery", body, flash=flash))
             elif tab == "interaction":
                 body = workbench.render_interaction_tab(
@@ -1437,7 +1669,12 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                 self._send_html(_layout("portfolio", "Portfolio & Network", body, flash=flash))
 
         def do_POST(self) -> None:
+            if not self._local_request(writing=True):
+                return
             parsed = urlsplit(self.path)
+            if parsed.path in ("/api/phone-home/submissions", "/action/phone-home-submit"):
+                self._phone_home_submit(parsed.path.startswith("/action/"))
+                return
             length = int(self.headers.get("Content-Length", "0"))
             raw_body = self.rfile.read(length).decode("utf-8", errors="replace")
             form = parse_qs(raw_body)
@@ -1554,11 +1791,15 @@ def serve_control_plane(
     port: int = 8780,
     open_browser: bool = False,
     workbench: ControlPlaneWorkbench | None = None,
+    seed_evaluation: bool = False,
 ) -> ThreadingHTTPServer:
+    if host not in ("127.0.0.1", "localhost"):
+        raise ValueError("workbench must bind to loopback (127.0.0.1 or localhost)")
     wb = workbench or ControlPlaneWorkbench()
-    wb.fabric.ensure_built()
+    if not wb.fabric.freshness()["built"]:
+        wb.fabric.rebuild(include_conversations=False)
     # Seed an initial side-by-side benchmark run if the database has zero runs so the operator immediately sees a comparison
-    if not wb.interaction_lab.list_runs(limit=1):
+    if seed_evaluation and not wb.interaction_lab.list_runs(limit=1):
         reg = wb.interaction_lab.load_registry()
         default_task = reg["benchmark_tasks"][0]
         wb.interaction_lab.run_side_by_side_evaluation(
