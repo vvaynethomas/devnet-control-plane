@@ -2,17 +2,35 @@
 
 Authoritative product delivery queue for the **Development Network Control Plane (DNCP)** system node.
 
+**Evidence audit: 2026-11-01**, against commit `2c501ce` (also `origin/main` after fetch). Statuses describe this checkout, not release publication or operator acceptance. `Awaiting acceptance` means implementation is present but acceptance is unverified; `Open (partial)` means some criteria are implemented, not that the whole task is done.
+
 | Task ID | Scope and Acceptance Criteria | Depends On | Priority | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| DNCP-001 | Standalone repository graduation and zero-dependency package distribution. | None | P1 | Completed (v0.1.0 released) |
-| DNCP-002 | 6-Pillar Loopback Web Workbench GUI (Portfolio, Queues, Fabric, Conversations, Capabilities, Interaction Lab). | DNCP-001 | P1 | Completed (v0.1.0 delivered) |
-| DNCP-003 | Multi-harness Conversation Hub: auto-harvest Antigravity and VS Code Copilot, tokenomics tracking, and 1-click granular copy controls. | DNCP-002 | P1 | Completed (v0.1.0 delivered) |
+| DNCP-001 | Standalone repository graduation and zero-dependency package distribution. | None | P1 | Blocked (CLI and packaged registry missing; publication unverified) |
+| DNCP-002 | 6-Pillar Loopback Web Workbench GUI (Portfolio, Queues, Fabric, Conversations, Capabilities, Interaction Lab). | DNCP-001 | P1 | Awaiting acceptance (six-tab implementation present; packaged launch blocked by DNCP-001) |
+| DNCP-003 | Multi-harness Conversation Hub: auto-harvest Antigravity and VS Code Copilot, tokenomics tracking, and 1-click granular copy controls. | DNCP-002 | P1 | Open (partial; request-time scans and estimated tokens present) |
 | DNCP-004 | Live Background Watcher for Conversation Fabric (~/.gemini/antigravity/brain, VS Code workspaceStorage) to eliminate manual re-harvest triggers. | DNCP-003 | P1 | Open |
-| DNCP-005 | Universal Ingestion Deck: drag-and-drop & paste onboarding for ChatGPT (conversations.json/zip), Gemini Web (export/takeout), M365 Copilot (transcripts/text), and Claude/Perplexity. | DNCP-003 | P1 | Open |
-| DNCP-006 | Anti-Fatigue Granular Copy Controls: 1-click Handoff Packet, Code-Only Extractor, Turn Pair, and Prompt/Reply split buttons with toast confirmations. | DNCP-003 | P1 | Completed (v0.1.0 delivered) |
+| DNCP-005 | Universal Ingestion Deck: drag-and-drop & paste onboarding for ChatGPT (conversations.json/zip), Gemini Web (export/takeout), M365 Copilot (transcripts/text), and Claude/Perplexity. | DNCP-003 | P1 | Open (partial; raw-text paste/import only) |
+| DNCP-006 | Anti-Fatigue Granular Copy Controls: 1-click Handoff Packet, Code-Only Extractor, Turn Pair, and Prompt/Reply split buttons with toast confirmations. | DNCP-003 | P1 | Open (partial; buttons present, all-harness handoffs and toast acceptance outstanding) |
 | DNCP-007 | Zero-Touch Local AI Gateway Proxy: loopback /v1/chat/completions proxy logging streaming tokens, prompts, and costs for Gemini API, Claude API, Perplexity, and OpenAI. | DNCP-004 | P2 | Open |
 | DNCP-008 | Epistemic Matrix & Knowledge Drift Inspector: visual UI grid showing agent knowledge coverage across 22 repos, drift detection, and 1-click alignment briefs. | DNCP-005 | P2 | Open |
 | DNCP-009 | The Metabolizer & Shared Blackboard: background synthesizer extracting architectural decisions, active blockers, and file locks into a 24h Situational Awareness digest. | DNCP-008 | P2 | Open |
 | DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open |
-| DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open |
+| DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
+
+## Evidence and Remaining Acceptance Gates
+
+| Tasks | Repository evidence | Needed to finish |
+| :--- | :--- | :--- |
+| DNCP-001 | `pyproject.toml`, `control_plane/__init__.py`, and `release.py` declare 0.1.0 with no required runtime dependencies. Both console scripts target the absent `control_plane.cli:main`. The registry is in top-level `registry/`, but the wheel builder collects only `control_plane/`; the installed fallback registry is absent. | Restore the CLI and embed the registry, then demonstrate clean wheel/sdist installation, launch, frame loading, and artifact integrity/provenance. The builder uses timestamps and resolves manifest Git provenance outside this repository; reproducibility is not established. No tags or GitHub Releases were listed at audit time; publication elsewhere and operator acceptance are unknown. |
+| DNCP-002 | `control_plane/ui.py` defines all six tabs and a loopback server. `tests/test_control_plane.py` covers rendering but relies on external Factory/network fixtures for most pillars. | Run with controlled Factory/network fixtures and demonstrate all six tabs/endpoints plus packaged launch. Current evidence supports provisional implementation, not full acceptance. |
+| DNCP-003, DNCP-004 | `UnifiedConversationHub.get_all_conversations()` scans Antigravity, VS Code Copilot, and Copilot CLI on each request. Tokens are character-based estimates; some source/model metadata is heuristic. No filesystem watcher is present. | Validate supported transcript schemas, dialogue pairing and metadata, all-harness handoffs, and background updates without page reload/re-harvest. Do not equate request-time discovery with a daemon. |
+| DNCP-005 | `import_external_chat()` persists raw text in SQLite; `/action/import-chat` accepts a text form. Hub search is in-memory substring filtering. `FabricIndex.rebuild()` does not ingest the imported-chat database. | Add and demonstrate platform export parsers, zip/file drop handling, format preview, metadata mapping, and imported-chat Fabric indexing. Ordinary SQLite storage is not encryption. |
+| DNCP-006 | `render_conversations_tab()` has turn/prompt/reply/code buttons and temporary inline "Copied!" feedback. `compile_context_handoff()` discovers only Antigravity; unmatched imported/VS Code/CLI sessions return an error and the UI uses empty markdown. | Verify clipboard output and nonempty correct handoffs for every supported harness, including error behavior and the specified toast UX. Browser clipboard acceptance is unknown. |
+| DNCP-007-DNCP-010, DNCP-012 | No inbound AI proxy, epistemic state/matrix, blackboard/synthesizer, MCP server, or ALM registry exchange implementation is present. The outbound Interaction Lab completion client is not an inbound gateway. | Implement and validate the stated criteria; design text is not delivery evidence. |
+| DNCP-011 | `InteractionFrameEngine._try_live_llm()` accepts `OPENAI_BASE_URL` and `INTERACTION_LAB_MODEL`, but requires a nonempty `OPENAI_API_KEY` and falls back to a labeled deterministic preview on failure. | Demonstrate real offline completions against supported local runtimes, appropriate local authentication, and persisted model/mode evidence. A configured URL or deterministic preview alone does not prove a native bridge. |
+
+No outstanding item was fully closed by this audit. DNCP-002 is provisionally implementation-complete only; priorities and dependencies remain unchanged. See [ROADMAP.md](ROADMAP.md) for planned release scope.
+
+**Queue-consumer limitation:** `control_plane/queues.py` recognizes only P0-P2 in this five-column format, so DNCP-011/DNCP-012 P3 rows are misinterpreted by that parser. Preserve their P3 priorities here; verify a parser repair before relying on aggregated priority/dependency data for those rows.

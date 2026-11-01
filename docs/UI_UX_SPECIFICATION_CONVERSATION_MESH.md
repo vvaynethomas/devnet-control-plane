@@ -1,9 +1,11 @@
 # UI/UX Specification: Universal Conversation Mesh & The Metabolizer
 **Product:** Development Network Control Plane (DNCP)
-**Status:** Approved for Implementation (v0.2.0 - v0.3.0)
+**Status:** Proposed implementation target (v0.2.0 - v0.3.0); approval and delivery acceptance unverified
 **Primary Focus:** Low-Touch Multi-Harness Chat Ingestion, Epistemic Alignment, and Anti-Fatigue Handoff Controls
 
 ---
+
+**Evidence boundary (2026-11-01):** This document specifies intended behavior, not shipped functionality. The current checkout has request-time local scans, raw-text imports into an ordinary local SQLite hub, and granular copy buttons with inline feedback. It does not implement the watcher, platform export/drop-zone parsers, imported-chat FTS5 indexing, gateway, epistemic matrix, blackboard, Metabolizer, MCP server, or shortcuts below. Full handoff compilation supports Antigravity only. Wireframe dates, agent states, digests, repository counts, and release/review claims are illustrative, not live or verified records. See [the backlog](../BACKLOG.md) for acceptance gates.
 
 ## 1. Executive Summary & Problem Definition
 
@@ -20,7 +22,7 @@ Developers working with multiple modern AI coding agents (Antigravity, VS Code G
 
 ## 2. Information Architecture (6-Pillar Workbench Integration)
 
-The Workbench GUI (`http://127.0.0.1:8780/`) integrates the Conversation Mesh across two core views:
+The proposed Workbench GUI (`http://127.0.0.1:8780/`) would integrate the Conversation Mesh across two core views. The sketch is partial: the implemented six-tab navigation still includes Pillar 5 Capability Discovery and Pillar 6 Interaction Lab. Replacing or extending Capability Discovery with the Epistemic Matrix requires an explicit navigation decision; neither existing pillar should be silently removed.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -73,7 +75,7 @@ A frictionless onboarding surface supporting drag-and-drop, direct file selectio
    - Contains timestamped `[User]` / `[Copilot]` lines or Microsoft Teams/M365 format → **M365 Copilot**.
    - Contains `role: human` / `role: assistant` JSON → **Anthropic Claude**.
 3. **Instant Preview Pill:** Displays turn count, detected model badge (e.g. `GPT-4o`, `Claude 3.5 Sonnet`, `Gemini 1.5 Pro`), and estimated tokens.
-4. **1-Click Commit:** Writes directly to the encrypted/local SQLite FTS5 database and notifies the active session list.
+4. **1-Click Commit (Target):** Persists locally and indexes into SQLite FTS5, then notifies the active session list. Encryption is not implemented; any encryption requirement needs a separate storage/key-management decision.
 
 ---
 
@@ -227,6 +229,7 @@ A dynamic heads-up display of living network facts.
 
 ## 6. Implementation Roadmap
 
-- **Phase 1 (v0.2.0):** Universal Drop-Zone GUI in `control_plane/ui.py`, background watcher for Antigravity & Copilot, and granular copy button suite.
-- **Phase 2 (v0.2.5):** Local `/v1` AI Gateway Proxy for Gemini API, Anthropic Claude, and Perplexity with zero-touch streaming capture.
+- **Baseline acceptance (declared v0.1.0):** Resolve CLI/registry distribution blockers and verify the existing granular copy buttons, including all-harness handoffs and feedback (DNCP-001/DNCP-006).
+- **Phase 1 (v0.2.0):** Universal Drop-Zone GUI in `control_plane/ui.py` and background watcher for Antigravity & Copilot.
+- **Phase 2 (v0.2.0 target):** Local `/v1` AI Gateway Proxy for Gemini API, Anthropic Claude, and Perplexity with zero-touch streaming capture. This follows the root roadmap; no separate v0.2.5 release is committed.
 - **Phase 3 (v0.3.0):** Epistemic Matrix visualizer, Shared Blackboard HUD, and Metabolizer synthesis engine with MCP context server support.
