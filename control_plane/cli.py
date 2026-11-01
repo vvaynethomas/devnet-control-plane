@@ -39,6 +39,27 @@ def build_parser() -> argparse.ArgumentParser:
     for name in ("get", "export"):
         intake.add_parser(name).add_argument("id")
     phone.add_parser("rebuild", help="Explicit canonical-only Fabric refresh (no chat harvesting)")
+    metabolizer = commands.add_parser(
+        "metabolizer", help="Explicit opt-in repository digestion and human-only provisional review",
+    ).add_subparsers(dest="metabolizer_operation", required=True)
+    register = metabolizer.add_parser("register", help="Opt in a local repository; does not start scanning")
+    register.add_argument("id")
+    register.add_argument("path", type=Path)
+    register.add_argument("--identity", required=True, help="Repository identity, e.g. owner/name; never fetched")
+    register.add_argument("--revision", default="HEAD")
+    register.add_argument("--exclude", action="append", default=[], help="Repository-relative path glob")
+    metabolizer.add_parser("list", help="List opted-in repositories, without scanning")
+    metabolizer.add_parser("unregister", help="Stop eligibility; keep historical evidence").add_argument("id")
+    scan = metabolizer.add_parser("scan", help="Read a registered repository's committed revision")
+    scan.add_argument("id")
+    scan.add_argument("--revision", help="Explicit committed revision override, without checkout")
+    metabolizer.add_parser("get", help="Read/export a persisted evidence bundle as JSON").add_argument("scan_id")
+    from .digester import REVIEW_ACTIONS
+    review = metabolizer.add_parser("review", help="Record human judgment only; never promote or adopt")
+    review.add_argument("scan_id")
+    review.add_argument("item_id")
+    review.add_argument("--action", required=True, choices=REVIEW_ACTIONS)
+    review.add_argument("--note", default="")
     return parser
 
 
@@ -67,6 +88,24 @@ def dispatch(service: PhoneHome, args: argparse.Namespace) -> Any:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "metabolizer":
+            from .repo_metabolizer import RepositoryMetabolizer
+            metabolizer = RepositoryMetabolizer(args.data_dir, args.factory_root)
+            operation = args.metabolizer_operation
+            if operation == "register":
+                result = metabolizer.register(args.id, args.path, args.identity, args.revision, args.exclude)
+            elif operation == "list":
+                result = metabolizer.repositories()
+            elif operation == "unregister":
+                result = metabolizer.unregister(args.id)
+            elif operation == "scan":
+                result = metabolizer.scan(args.id, args.revision)
+            elif operation == "get":
+                result = metabolizer.get(args.scan_id)
+            else:
+                result = metabolizer.review(args.scan_id, args.item_id, args.action, args.note)
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 0
         service = PhoneHome(args.factory_root, args.network_root, args.data_dir)
         if args.command == "serve":
             from .ui import ControlPlaneWorkbench, serve_control_plane

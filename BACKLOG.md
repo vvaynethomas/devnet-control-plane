@@ -21,6 +21,21 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
 | DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check available library/toolbox sources before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. Intended network library is a graph of released product-owned libraries; current coverage is one incubator plus bounded local Python modules, not graph-wide discovery. | DNCP-002 | P1 | Awaiting acceptance (bounded front-door implementation covered; graph-wide library coverage not implemented; first next-round gate) |
 | DNCP-015 | Consumer-integration proposal only: read PRJ-0006's future local conversation/provenance contract into DNCP Fabric, Conversations and Handoff without duplicating collection. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Proposed (contract and owner reconciliation required; no integration implemented here) |
+| DNCP-016 | First repo-agnostic digester: explicitly registered, human-invoked committed-repository static extraction; exact provenance, gaps/errors/exclusions, untargeted residue and frequency counts; compare against available DNCP/Fabric inventory; durable provisional human dispositions without phone-home dependency, promotion or source writes. | DNCP-001 | Unassigned | Awaiting acceptance (CLI-only implementation and isolated real-Git contract coverage; no watcher, scheduler, external extractor, LLM or graph-wide inventory) |
+
+**DNCP-016 is distinct from DNCP-009:** the first digester is a pull-based,
+read-only repository metabolizer, not a background synthesizer, blackboard or
+24-hour situational-awareness digest. The material-neutral contract is in
+[docs/digester-contract.md](docs/digester-contract.md); registration, static
+extraction, comparison and append-only human review are implemented in
+`control_plane\repo_metabolizer.py` with explicit `devnet metabolizer` CLI
+commands. Existing phone-home behavior is independent and optional.
+`tests\test_repo_metabolizer.py` uses isolated committed Git fixtures for
+eligibility, deterministic/read-only extraction, bounds/errors, residue/counts,
+inventory provenance and durable dispositions. No incubator or product
+records/backlogs are written. API/UI/MCP digester surfaces, broader extractors
+and product-library graph completion remain outside this slice; priority and
+operator acceptance have not been assigned or inferred.
 
 ## Evidence and Remaining Acceptance Gates
 

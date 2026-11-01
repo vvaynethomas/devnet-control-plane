@@ -247,7 +247,7 @@ successful empty answers. Stdio uses SDK negotiation and no HTTP MCP or external
 connections. This bounded capability/intake adapter does **not** finish DNCP-010's
 planned live-state/Metabolizer/handoff server.
 
-Only `serve`, `mcp`, `phone-home`, version/help are implemented CLI commands.
+Only `serve`, `mcp`, `phone-home`, `metabolizer`, version/help are implemented CLI commands.
 Earlier intended status/search/discover/handoff/eval-frames/verify-release CLI
 commands remain unimplemented; their engines/UI are not promises of CLI support.
 
@@ -276,6 +276,64 @@ Use a supported shared interface/extraction proposal, not copied modules or a
 runtime import from a sibling checkout. No chat code is moved/refactored here.
 
 ---
+
+### Repository metabolizer: first digester
+
+DNCP can now **chew an explicitly opted-in repository** into provisional
+evidence, candidate reuse matches and remainder for human investigation.
+This local CLI-only slice is independent of phone-home. Registration does not
+scan; each scan is explicitly invoked and reads a committed Git revision
+without checkout, working-tree reads, hooks, code execution or network fetches.
+Unregistered repositories are refused. No watcher, scheduler, LLM, router,
+concierge or other digester is introduced.
+
+```powershell
+devnet metabolizer register example 'C:\path\to\example' --identity owner/example --exclude 'vendor/*'
+devnet metabolizer list
+devnet metabolizer scan example --revision HEAD
+# Use scan_id and item IDs returned in the JSON:
+devnet metabolizer get DIGEST-returned-uuid
+devnet metabolizer review DIGEST-returned-uuid ITEM-returned-id --action 'maps to existing capability' --note 'Human evidence review'
+devnet metabolizer unregister example
+```
+
+Global `--factory-root` and `--data-dir` options go before `metabolizer`, as with
+phone-home. Registration is a DNCP-local eligibility store, not a flag written
+to the source repository. The registered revision (default `HEAD`) is resolved
+at invocation; an explicit revision override is allowed. Unregistering prevents
+future scans but retains old bundles and reviews.
+
+The standard-library extractors read bounded Python public symbols, JSON
+package/dependency manifests, requirements and Markdown headings. Each item
+cites repository identity, exact commit, path/blob, line when applicable and
+extractor/version. Unsupported files, imports/private symbols, unheaded docs
+and untargeted fields remain in `residue.not_targeted`; repeated items **and
+remainder observations** retain counts and evidence in `residue.frequency`.
+Redundancy is a commonality signal, not a reason to drop evidence or infer trust.
+Coverage explicitly reports exclusions, read/parse errors and all bounded
+omissions. Markdown headings do not establish architecture decisions.
+
+Comparison reuses available incubator capability registries/patterns, DNCP
+modules and a matching-root existing Fabric cache; it never scans sibling
+repositories or silently rebuilds/harvests chats. Matches cite paths and
+rationale; inventory errors, stale/unknown coverage and the incomplete
+product-library graph stay visible. **No match does not prove novelty; a match
+does not establish trust.** Syft/SCIP/Repomix and LLM summarization are deferred,
+not required or invoked.
+
+Every candidate stays provisional. Human review records the four dispositions:
+maps to existing capability, trusted solution to adopt,
+extend/customize/integrate, or new knowledge/idea; `defer`/`reject` are also
+available. None adopts, promotes, dispatches, creates canonical records or
+writes to an incubator/product backlog. Review history and bounded bundles
+persist in separate `repo_metabolizer.sqlite` runtime storage outside source
+Git repositories. Local SQLite is not encrypted and has no automatic retention
+deletion. Known credential patterns are excluded/redacted, not comprehensive
+secret detection; register only material authorized for local review.
+
+See [Digester contract v1](docs/digester-contract.md) for the material-neutral
+protocol, schema, exact bounds and coverage limitations. API/UI/MCP digester
+surfaces and broader extraction are deliberately outside this first slice.
 
 ## Packaging and Release
 
