@@ -23,7 +23,7 @@
 
 Capability Discovery now includes a **Decision Aid** for infrastructure/hosting, coordination/recoverability, and capability/context routing. Select a topic and enter non-sensitive project constraints to review canonical incubator guidance, unranked alternatives, review questions, record statuses, and upstream provenance. Inputs remain unverified and do not change ranking or establish tool access. No provider is selected, no assignment is dispatched, and no deployment or approval is performed. Existing capability search remains available alongside the aid.
 
-The incubator remains the source of truth; DNCP does not copy the supplied notes or create a second knowledge store. Configure `FACTORY_ROOT` to the intended incubator checkout. The aid reads current records through the existing Fabric collector; rebuild Fabric after canonical changes to refresh linked entity inspectors. A missing directory or read failure is reported explicitly; no tagged records means guidance is unavailable, not that no relevant capability exists.
+The incubator remains the source of truth **for the incubator-owned records consumed by this aid**, not for every product library in the network. DNCP does not copy the supplied notes or create a second canonical store for those records. Configure `FACTORY_ROOT` to the intended incubator checkout. The aid reads current records through the existing Fabric collector; rebuild Fabric after canonical changes to refresh linked entity inspectors. A missing directory or read failure is reported explicitly; no tagged records means guidance is unavailable, not that no relevant capability exists.
 
 **Record contract:** use existing Fabric-supported directories (`knowledge/`, project READMEs/artifacts, runbooks/workflows) and scalar frontmatter `id`, `title`, `type`, `status`, `created_date`; use inline arrays for `tags`, `upstream_refs`, and `downstream_refs`. Include one or more exact topic tags: `infrastructure-decision`, `coordination-recoverability`, `capability-routing`. Record IDs are discovered, not hardcoded. Provisional labels, unresolved references, and missing dates stay visible; neither record status nor a source's vendor opinion proves current operational readiness.
 
@@ -76,6 +76,35 @@ Launch binds to loopback only and does not seed model evaluations or harvest
 personal chats. Explicit Interaction Lab evaluations remain available in the UI.
 
 ### 3. Network phone-home
+
+#### Library architecture: product nodes, not one central library
+
+**The network library is a graph of the network's product libraries.** Each
+product ships its own library with its release and owns its records, capabilities,
+and provenance. DNCP has its own library as a product, while the control plane
+must surface or attend the graph across product nodes. The incubator is one
+owner/source in that graph; it is not the canonical owner of all network knowledge.
+This is the intended architecture, **not implemented graph-wide discovery**.
+
+Current phone-home coverage is narrower:
+
+| Surface | What is implemented | What it does not establish |
+|---|---|---|
+| Knowledge and provenance | `control_plane\fabric.py` collects records and skill/prompt registries from one `FACTORY_ROOT`, with record-reference resolution in that index. | Discovery of independently released product libraries, graph node/edge identity, or cross-product provenance resolution. |
+| Registered tools and owner candidates | `control_plane\capabilities.py` and `phone_home.py` consume that incubator's skill/runbook/pattern/project registries. | Every product's own registry, library contract, released version, or current capabilities. |
+| Local modules | `scan_network_modules()` reads DNCP's `control_plane` modules, selected incubator roots, and bounded Python modules in discovered sibling Git checkouts. | A released product-library inventory. A checkout name/path and AST symbol are not a product-library node or release identity. |
+| DNCP's own distribution | The package ships DNCP code and the InteractionFrame registry; its own Python modules are searchable. | A declared/versioned DNCP library manifest or proof that DNCP's complete product library is published and graph-addressable. |
+| Reports | A separate local provisional inbox captures unverified source/evidence references for manual review. | Canonical ownership, product-library publication, promotion, or synchronization. |
+
+Specific follow-on gaps: a product-owned library/release contract (including
+DNCP's), node discovery and declared graph edges, namespaced identity across
+products/releases, cross-node queries and provenance, per-node freshness/
+availability/version evidence, and destination-owner review of reported
+discoveries. Existing record IDs and upstream/downstream refs retain their
+incubator contract; do not reinterpret them as a verified network graph.
+No federation, synchronization, node dispatch, or release-library implementation
+is added by this clarification. An empty current check cannot establish absence
+across the intended graph.
 
 **Priority 1 decision order:** (1) find an existing network capability and reuse
 it with customization, citing evidence; (2) check for a battle-tested external
@@ -159,15 +188,19 @@ Output is JSON on stdout; failures go to stderr with a nonzero exit code.
 `--file -` reads a bounded JSON request from stdin. JSON export also goes to
 stdout so the caller can redirect it to their chosen review artifact.
 
-**Intake is an inbox, not another knowledge store.** Submissions append to
+**Intake is an inbox, not another canonical product library.** Submissions append to
 `DEVNET_DATA_DIR\phone_home.sqlite` with an `INTAKE-<UUID>`, UTC receipt,
-digest, and fixed `provisional` status. The canonical incubator owns SRC/FND/PAT/DEC.
+digest, and fixed `provisional` status. The incubator retains ownership of the
+SRC/FND/PAT/DEC records actually stored under its existing contract; that does
+not make it the owner of every product's released library.
 Source/session references, reuse queries, and external evidence are unverified
 claims; nothing is fetched, executed, approved, or automatically promoted.
 Idempotency keys return the same receipt for identical normalized content and
 conflict on changed content. There is no mutation/deletion/promotion interface.
-A human reviews/export submissions and separately creates/updates canonical
-incubator records under its existing contract.
+A human reviews/exports submissions and separately creates/updates incubator-owned
+records under that existing contract where appropriate. Product-owned discoveries
+require review by their destination product owner; product-library routing and
+promotion are not implemented by this local inbox.
 
 Required fields: kind, title, summary, source_repo, reuse_query. Kinds:
 discovery/tool/skill/runbook/module/finding/decision. Optional schema version

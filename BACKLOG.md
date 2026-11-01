@@ -19,7 +19,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
-| DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check library/toolbox before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. | DNCP-002 | P1 | Awaiting acceptance (implementation and portable interface/package coverage; first next-round gate) |
+| DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check available library/toolbox sources before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. Intended network library is a graph of released product-owned libraries; current coverage is one incubator plus bounded local Python modules, not graph-wide discovery. | DNCP-002 | P1 | Awaiting acceptance (bounded front-door implementation covered; graph-wide library coverage not implemented; first next-round gate) |
 | DNCP-015 | Consumer-integration proposal only: read PRJ-0006's future local conversation/provenance contract into DNCP Fabric, Conversations and Handoff without duplicating collection. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Proposed (contract and owner reconciliation required; no integration implemented here) |
 
 ## Evidence and Remaining Acceptance Gates
@@ -55,6 +55,38 @@ agent to record component candidates with links without trusting/fetching them.
 Registry products are candidate owners only; standalone recommendation requires
 resolved earlier checks, an explained lack of a suitable existing owner,
 independent network/outside value, and human ownership/maintenance approval.
+
+### Product-Library Graph: Coverage and Outstanding Scope
+
+The user clarified that the network library is a **graph of product libraries**:
+each product releases its own library, and DNCP both has its own product library
+and surfaces/attends the graph across product nodes. There is no centralized
+canonical owner for every product's library. Incubator-owned records retain
+their existing IDs/frontmatter/provenance contract and source of truth.
+
+Current evidence supports only one-incubator knowledge consumption
+(`fabric.py:collect_knowledge_entities`, `capabilities.py:discover_capabilities`),
+incubator registry owner candidates (`phone_home.py:check`), and bounded local
+Python scans including DNCP (`capabilities.py:scan_network_modules`). The shipped
+DNCP code/InteractionFrame registry is not evidence of a versioned product-library
+manifest or graph node. Record refs inside Fabric and local module owner/path
+labels must not be presented as a resolved graph of released product libraries.
+
+**Follow-on scope proposal, not implemented or assigned a new priority here:**
+define product-owned library/release manifests, DNCP's own declared library,
+node and edge discovery, product/release-namespaced identity, cross-node search/
+provenance, per-node version/freshness/unavailability evidence, and destination
+product-owner review for discovery intake. Agree ownership and contracts before
+implementation. This is distinct from DNCP-015's chat-product consumer proposal;
+it does not assign library ownership to the incubator or create a duplicate
+canonical network library/backlog.
+
+DNCP-014's bounded interface coverage does not fulfill graph-wide discovery.
+Graph acceptance would require fixtures for multiple independently released
+product libraries including DNCP, colliding local record IDs, declared edges,
+cross-node provenance, and missing/stale/versioned nodes, with no canonical
+writes. None of federation, synchronization, or this acceptance suite is
+implemented by the present documentation clarification.
 
 Reuse implementation: `control_plane\phone_home.py` extends
 `capabilities.py`/`fabric.py`; `cli.py`, `mcp_server.py`, and the existing

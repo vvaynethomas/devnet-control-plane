@@ -16,7 +16,9 @@ Before declaring v0.1.0 delivered, resolve DNCP-001 packaging/CLI blockers and c
 
 ## v0.2.0 — Universal Ingestion Deck & Zero-Touch AI Gateway (Planned; Next Target)
 - **Network phone-home first (DNCP-014):** shared CLI/API/MCP/UI library check and
-  provisional local report intake. The Priority 1 ladder is network
+  provisional local report intake. Current discovery consumes one incubator's
+  records/registries plus bounded local Python modules, not a graph of released
+  product libraries. The Priority 1 ladder is network
   reuse/customization, an explicit external component check, an existing-product
   extension, then a justified standalone product. No live external research,
   canonical writes, or dispatch; human choice and unknowns remain visible.
@@ -45,6 +47,21 @@ DNCP-011 (local model bridge) and DNCP-012 (ALM consumer exchange) remain unsche
 The existing Capability Discovery pillar now surfaces infrastructure-decision, coordination/recoverability, and capability-routing guidance from canonical incubator records through an explicit tag contract. The Decision Aid shows operator-entered constraints, questions, unranked alternatives, statuses and provenance without dispatch, provider selection, cost/readiness scores, or a second knowledge store. This is a bounded advisory slice awaiting acceptance, not delivery of the planned epistemic matrix, Metabolizer, MCP server, or ALM exchange.
 
 ## Next-Round Ownership and Acceptance
+
+**Library architecture clarification:** the network library is a graph of product
+libraries; each product ships its own library with its release. DNCP has its own
+product library and must surface/attend that graph, rather than centralize every
+product's library in the incubator. Existing incubator-owned records keep their
+canonical contract. Present Fabric record refs and local AST scans are not
+implemented product-node discovery or release-library federation.
+
+The graph-wide follow-on requires product-library/release contracts (including
+DNCP), node/edge discovery, namespaced product/release identity, cross-node
+search/provenance, per-node freshness/version/availability, and owner-directed
+discovery review. This is outstanding scope, not a delivery claim, a new
+prioritization, or DNCP-015 chat integration. No graph synchronization/federation
+is built as part of this clarification; see [BACKLOG.md](BACKLOG.md) for coverage
+evidence and proposed acceptance boundaries.
 
 DNCP-014 is first and now has portable implementation coverage. It restores
 callable CLI/installed-registry prerequisites, adds only a bounded stdio
