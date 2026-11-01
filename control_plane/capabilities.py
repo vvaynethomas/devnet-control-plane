@@ -4,12 +4,106 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
-from . import FACTORY_ROOT
+from . import FACTORY_ROOT, PROJECT_ROOT
 from .fabric import FabricIndex
+
+
+def _module_details(source: str) -> tuple[str, list[str]]:
+    tree = ast.parse(source)
+    doc = ast.get_docstring(tree) or ""
+    symbols = [n.name for n in tree.body if isinstance(n, ast.ClassDef) and not n.name.startswith("_")]
+    symbols += [n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and not n.name.startswith("_")][:8]
+    return doc.strip().splitlines()[0] if doc.strip() else "", symbols
+
+
+def scan_network_modules(
+    factory_root: Path, network_root: Path, query: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str]]:
+    """Bounded read-only AST discovery in explicit roots and discovered sibling checkouts."""
+    excluded = {".git", "__pycache__", ".venv", "venv", "node_modules", "vendor", "dist", "build", ".tox"}
+    warnings: list[str] = []
+    roots = [PROJECT_ROOT / "control_plane", factory_root / "runbooks" / "scripts",
+             factory_root / ".github" / "skills", factory_root / "projects"]
+    try:
+        if network_root.is_dir():
+            roots.extend(p for p in sorted(network_root.iterdir()) if p.is_dir()
+                         and not p.is_symlink() and not getattr(p, "is_junction", lambda: False)()
+                         and (p / ".git").exists() and p.resolve() != factory_root.resolve()
+                         and p.name != "devnet-control-plane" and p.resolve() != PROJECT_ROOT.resolve())
+        else:
+            warnings.append(f"Network directory unavailable: {network_root}")
+    except OSError as exc:
+        warnings.append(f"Network directory unreadable: {exc}")
+    tokens = re.findall(r"[a-z0-9_]+", query.lower())
+    matches: list[dict[str, Any]] = []
+    scanned = 0
+    paths_seen: set[Path] = set()
+    scanned_roots: list[str] = []
+
+    def linked(path: Path) -> bool:
+        # Python 3.10 does not have Path.is_junction.
+        return path.is_symlink() or bool(getattr(path.lstat(), "st_file_attributes", 0) & 0x400)
+
+    def walk_error(error: OSError) -> None:
+        warnings.append(f"Module traversal failed: {error}")
+
+    for root in roots:
+        if not root.is_dir():
+            warnings.append(f"Module root unavailable: {root}")
+            continue
+        if linked(root):
+            warnings.append(f"Skipped linked module root: {root}")
+            continue
+        scanned_roots.append(str(root))
+        for directory, dirs, files in os.walk(root, followlinks=False, onerror=walk_error):
+            here = Path(directory)
+            try:
+                dirs[:] = [d for d in sorted(dirs) if d not in excluded and not linked(here / d)]
+                if len(here.relative_to(root).parts) >= 8:
+                    if dirs:
+                        warnings.append(f"Module depth limit reached: {here}")
+                    dirs[:] = []
+                for filename in sorted(files):
+                    path = here / filename
+                    if path.suffix != ".py" or path.name.startswith("test_") or linked(path) or path in paths_seen:
+                        continue
+                    paths_seen.add(path)
+                    if scanned >= 2000:
+                        warnings.append("Module scan capped at 2000 files; inventory is partial.")
+                        return matches, {"roots": scanned_roots, "files_scanned": scanned, "capped": True}, warnings
+                    scanned += 1
+                    if path.stat().st_size > 1024 * 1024:
+                        warnings.append(f"Module larger than 1 MiB skipped: {path}")
+                        continue
+                    try:
+                        doc, symbols = _module_details(path.read_text(encoding="utf-8"))
+                    except (OSError, UnicodeError, SyntaxError) as exc:
+                        warnings.append(f"Module unreadable or invalid: {path}: {exc}")
+                        continue
+                    if root == PROJECT_ROOT / "control_plane":
+                        owner = "devnet-control-plane"
+                        relative = path.relative_to(PROJECT_ROOT).as_posix()
+                    elif factory_root.resolve() in path.resolve().parents:
+                        owner = factory_root.name
+                        relative = path.relative_to(factory_root).as_posix()
+                    else:
+                        owner = root.name
+                        relative = path.relative_to(root).as_posix()
+                    blob = f"{owner} {relative} {doc} {' '.join(symbols)}".lower()
+                    if (doc or symbols) and any(t in blob for t in tokens):
+                        matches.append({"id": f"MOD:{owner}:{relative}", "title": path.name,
+                                        "category": "code_module", "owner": owner, "path": relative,
+                                        "abs_path": str(path.resolve()), "summary": doc, "symbols": symbols,
+                                        "status": "unverified"})
+            except OSError as exc:
+                warnings.append(f"Module directory unreadable: {here}: {exc}")
+    return matches, {"roots": scanned_roots, "files_scanned": scanned, "capped": False}, warnings
 
 
 def _extract_python_module_capabilities(factory_root: Path = FACTORY_ROOT) -> list[dict[str, Any]]:
@@ -32,17 +126,12 @@ def _extract_python_module_capabilities(factory_root: Path = FACTORY_ROOT) -> li
             rel = py_path.relative_to(factory_root).as_posix()
             try:
                 source = py_path.read_text(encoding="utf-8", errors="replace")
-                tree = ast.parse(source)
-                module_doc = (ast.get_docstring(tree) or "").strip().splitlines()[0] if ast.get_docstring(tree) else ""
-                classes = [n.name for n in tree.body if isinstance(n, ast.ClassDef) and not n.name.startswith("_")]
-                funcs = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")]
+                module_doc, symbols = _module_details(source)
             except Exception:
                 module_doc = ""
-                classes = []
-                funcs = []
-            if not module_doc and not classes and not funcs:
+                symbols = []
+            if not module_doc and not symbols:
                 continue
-            symbols = classes + funcs[:8]
             capabilities.append(
                 {
                     "id": f"MOD:{py_path.stem}",
@@ -75,6 +164,9 @@ def _load_registered_tools_and_patterns(factory_root: Path = FACTORY_ROOT) -> li
                         "title": e["title"],
                         "category": cat_label,
                         "owner": e.get("skill_name") or e["id"],
+                        "status": e.get("status", "unverified"),
+                        "upstream_refs": e.get("upstream_refs", []),
+                        "downstream_refs": e.get("downstream_refs", []),
                         "path": e.get("path", ""),
                         "summary": summary,
                         "symbols": e.get("upstream_refs", []) + e.get("downstream_refs", []),
@@ -116,13 +208,15 @@ def discover_capabilities(
     problem_query: str = "",
     factory_root: Path = FACTORY_ROOT,
     fabric: FabricIndex | None = None,
+    *,
+    include_modules: bool = True,
 ) -> dict[str, Any]:
     """Answer:
     1) Have we solved this before? (Findings, Sources, Decisions, Conversations)
     2) Do we already have a tool or module for this? (Skills, Runbooks, Code Modules)
     3) What patterns are related? (PAT-#### records)
     """
-    modules = _extract_python_module_capabilities(factory_root)
+    modules = _extract_python_module_capabilities(factory_root) if include_modules else []
     registered = _load_registered_tools_and_patterns(factory_root)
     all_caps = registered + modules
 

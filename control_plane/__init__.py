@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import site
+import sys
 from pathlib import Path
 
 PACKAGE_VERSION = "0.1.0"
@@ -12,8 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Embedded registry vs. project registry
 PACKAGE_REGISTRY = Path(__file__).resolve().parent / "registry" / "interaction_frames.json"
+INSTALLED_REGISTRY = Path(sys.prefix) / "devnet_registry" / "interaction_frames.json"
+USER_REGISTRY = Path(site.getuserbase()) / "devnet_registry" / "interaction_frames.json"
+TARGET_REGISTRY = PROJECT_ROOT / "devnet_registry" / "interaction_frames.json"
 PROJECT_REGISTRY = PROJECT_ROOT / "registry" / "interaction_frames.json"
-REGISTRY_PATH = PROJECT_REGISTRY if PROJECT_REGISTRY.is_file() else PACKAGE_REGISTRY
+REGISTRY_PATH = next(
+    (p for p in (PROJECT_REGISTRY, PACKAGE_REGISTRY, TARGET_REGISTRY, INSTALLED_REGISTRY, USER_REGISTRY) if p.is_file()),
+    PACKAGE_REGISTRY,
+)
 
 
 def find_network_root(start_dir: Path | None = None) -> Path:
@@ -48,7 +56,7 @@ def find_factory_root(network_root: Path | None = None) -> Path:
 def find_default_data_dir() -> Path:
     if "DEVNET_DATA_DIR" in os.environ:
         return Path(os.environ["DEVNET_DATA_DIR"]).resolve()
-    return PROJECT_ROOT / "data"
+    return Path.home() / ".devnet"
 
 
 DEV_NETWORK_ROOT = find_network_root()
