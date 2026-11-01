@@ -6,21 +6,27 @@ Authoritative product delivery queue for the **Development Network Control Plane
 
 | Task ID | Scope and Acceptance Criteria | Depends On | Priority | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| DNCP-001 | Standalone repository graduation and zero-dependency package distribution. | None | P1 | Blocked (CLI and packaged registry missing; publication unverified) |
-| DNCP-002 | 6-Pillar Loopback Web Workbench GUI (Portfolio, Queues, Fabric, Conversations, Capabilities, Interaction Lab). | DNCP-001 | P1 | Awaiting acceptance (six-tab implementation present; packaged launch blocked by DNCP-001) |
+| DNCP-001 | Standalone repository graduation and zero-dependency package distribution. | None | P1 | Open (partial; CLI/registry restored with clean-package smoke coverage; release provenance/publication unverified) |
+| DNCP-002 | 6-Pillar Loopback Web Workbench GUI (Portfolio, Queues, Fabric, Conversations, Capabilities, Interaction Lab). | DNCP-001 | P1 | Awaiting acceptance (implementation and packaged launch present; full operator acceptance outstanding) |
 | DNCP-003 | Multi-harness Conversation Hub: auto-harvest Antigravity and VS Code Copilot, tokenomics tracking, and 1-click granular copy controls. | DNCP-002 | P1 | Open (partial; request-time scans and estimated tokens present) |
-| DNCP-004 | Live Background Watcher for Conversation Fabric (~/.gemini/antigravity/brain, VS Code workspaceStorage) to eliminate manual re-harvest triggers. | DNCP-003 | P1 | Open |
-| DNCP-005 | Universal Ingestion Deck: drag-and-drop & paste onboarding for ChatGPT (conversations.json/zip), Gemini Web (export/takeout), M365 Copilot (transcripts/text), and Claude/Perplexity. | DNCP-003 | P1 | Open (partial; raw-text paste/import only) |
+| DNCP-004 | Historical collection scope: Live Background Watcher for Conversation Fabric. Future collection delivery moves to PRJ-0006 ACH-005; DNCP consumes its interface. | DNCP-003 | P1 | Transfer proposed (owner queue reconciliation open; watcher not implemented here) |
+| DNCP-005 | Historical collection scope: Universal Ingestion Deck for ChatGPT, Gemini, M365 Copilot, Claude/Perplexity. Future collection delivery moves to PRJ-0006 ACH-004; DNCP consumes its interface. | DNCP-003 | P1 | Transfer proposed (raw-text paste remains here; owner queue reconciliation open) |
 | DNCP-006 | Anti-Fatigue Granular Copy Controls: 1-click Handoff Packet, Code-Only Extractor, Turn Pair, and Prompt/Reply split buttons with toast confirmations. | DNCP-003 | P1 | Open (partial; buttons present, all-harness handoffs and toast acceptance outstanding) |
 | DNCP-007 | Zero-Touch Local AI Gateway Proxy: loopback /v1/chat/completions proxy logging streaming tokens, prompts, and costs for Gemini API, Claude API, Perplexity, and OpenAI. | DNCP-004 | P2 | Open |
 | DNCP-008 | Epistemic Matrix & Knowledge Drift Inspector: visual UI grid showing agent knowledge coverage across 22 repos, drift detection, and 1-click alignment briefs. | DNCP-005 | P2 | Open |
 | DNCP-009 | The Metabolizer & Shared Blackboard: background synthesizer extracting architectural decisions, active blockers, and file locks into a 24h Situational Awareness digest. | DNCP-008 | P2 | Open |
-| DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open |
+| DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open (partial; DNCP-014 adds only local reuse/intake stdio tools, not live state or handoffs) |
 | DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
+| DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check library/toolbox before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. | DNCP-002 | P1 | Awaiting acceptance (implementation and portable interface/package coverage; first next-round gate) |
+| DNCP-015 | Consumer-integration proposal only: read PRJ-0006's future local conversation/provenance contract into DNCP Fabric, Conversations and Handoff without duplicating collection. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Proposed (contract and owner reconciliation required; no integration implemented here) |
 
 ## Evidence and Remaining Acceptance Gates
+
+The following table preserves the **baseline audit**. Subsequent phone-home and
+ownership changes are recorded below; baseline missing-CLI/registry statements
+are historical evidence, not the current checkout state.
 
 | Tasks | Repository evidence | Needed to finish |
 | :--- | :--- | :--- |
@@ -37,3 +43,63 @@ No outstanding item was fully closed by this audit. DNCP-002 is provisionally im
 **Subsequent integration, separate from the audit:** DNCP-013 implements advisory surfacing only. `control_plane/decision_aid.py` reuses the canonical Fabric collector and exact topic tags; `tests/test_decision_aid.py` covers provisional/active/draft status, current-source reads, provenance, missing data/errors, escaping, and the read-only HTTP/UI surface. A 2026-11-01 read-only cross-repository check verified all three actual topic mappings, active findings and the draft routing pattern, resolved source chains, and Fabric/Capability UI/API behavior with temporary local runtime storage and unchanged producer-record hashes. Operator acceptance remains outstanding; this does not finish DNCP-008/DNCP-009/DNCP-012 or implement a routing optimizer. Generic queue discovery, P3 parser repair, hosting deployment, autonomous execution, and credentials remain outside this slice.
 
 **Queue-consumer limitation:** `control_plane/queues.py` recognizes only P0-P2 in this five-column format, so DNCP-011/DNCP-012 P3 rows are misinterpreted by that parser. Preserve their P3 priorities here; verify a parser repair before relying on aggregated priority/dependency data for those rows.
+
+## Next Round: Phone-Home First, Chat Collection Owned Elsewhere
+
+**DNCP-014** implements the user-directed Priority 1 ladder consistently in CLI,
+API, MCP and UI. Existing capability matches cite evidence and recommend human
+review for customization, not verified readiness. External research is never
+performed: the explicit unresolved external check cannot be replaced with guessed
+candidates. Provisional `external_evidence` and literal `source_ref` allow a human/
+agent to record component candidates with links without trusting/fetching them.
+Registry products are candidate owners only; standalone recommendation requires
+resolved earlier checks, an explained lack of a suitable existing owner,
+independent network/outside value, and human ownership/maintenance approval.
+
+Reuse implementation: `control_plane\phone_home.py` extends
+`capabilities.py`/`fabric.py`; `cli.py`, `mcp_server.py`, and the existing
+`ui.py` call one service. Intake is a separate append-only local SQLite inbox.
+No canonical incubator records are written, no dispatch occurs, and personal
+chat harvesting/model evaluation is not triggered by phone-home launch/check.
+The CLI and registry prerequisite is restored without claiming all DNCP-001
+release gates complete. Tests use synthetic roots, real MCP stdio negotiation,
+HTTP validation, durable/idempotent intake, and isolated wheel/sdist installations.
+
+**User-directed ownership change:** the incubator has drafted provisional
+**PRJ-0006**, working title and priorities still undecided. Its canonical project
+records are `projects/ai-conversation-hub/README.md`, `BACKLOG.md`, `ROADMAP.md`
+in [vvaynethomas/product-incubator](https://github.com/vvaynethomas/product-incubator).
+Operator direction is recorded in SRC-0020, linked to SRC-0018/SRC-0019 and
+FND-0021/FND-0022. These are references to the producer's draft, not a second
+canonical backlog or evidence that queues are synchronized.
+
+| Execution gate | Ownership and next action |
+|---|---|
+| First: DNCP-014 | Check/review existing capabilities and provide provisional report intake. |
+| Next: ChatGPT `conversations.json` | PRJ-0006 ACH-004 intake, with ACH-003 local adapters as relevant; run phone-home first. Do not implement in DNCP-005 here. |
+| Then: narrow watcher | PRJ-0006 ACH-005; run phone-home first and use existing adapter/scanner contracts. Do not implement in DNCP-004 here. |
+| DNCP retained scope | DNCP-015 consumer proposal depends on phone-home and a published local PRJ-0006 contract; no new DNCP collector/parser. |
+
+Preserve DNCP-004/005's existing P1 and DNCP-003 dependency history. **ACH
+priorities remain unassigned**; DNCP P1 does not assign producer priorities.
+Duplicate-queue reconciliation remains an open owner action. The current DNCP
+code remains in place until a separate approved migration; nothing is moved or
+refactored on this branch.
+
+Evidence for separation: chat parsing is duplicated across
+`control_plane\fabric.py` (bounded conversation harvesters),
+`control_plane\handoff.py` (Antigravity discovery/pairing), and
+`control_plane\conversations.py` (multi-harness scanners/paste import).
+The aggregator product's reported direction is to adopt `copilot-session-tools`
+(MIT/PyPI) for Copilot CLI/VS Code and layer ChatGPT/Antigravity adapters;
+that product must verify suitability/licensing/version constraints through its
+front-door component check rather than treat this direction as tested delivery.
+
+For the producer's universal intake slice, check digital-asset-catalog reuse
+before building: `harvesters\snapshot.py` normalized/raw collector provenance,
+`harvesters\identity.py` safe hashing and identity evidence, and
+`harvesters\filesystem.py` placeholder/streaming-volume/link guards. The catalog
+does not parse chats; its asset schema and file identity do not resolve chat
+branches/messages. Adopt an appropriate supported interface/shared extraction
+later, not copied collectors or imports from a sibling checkout. None of this
+producer work or the DNCP consumer integration is implemented here.

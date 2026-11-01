@@ -32,6 +32,9 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+mcp = [
+    "mcp>=1.30,<2",
+]
 llm = [
     "openai>=1.0.0",
 ]
@@ -46,3 +49,6 @@ include = ["control_plane*"]
 
 [tool.setuptools.package-data]
 control_plane = ["registry/*.json"]
+
+[tool.setuptools.data-files]
+"devnet_registry" = ["registry/interaction_frames.json"]
