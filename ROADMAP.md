@@ -101,7 +101,7 @@ concrete paths, ownership handoff, and acceptance gates.
 
 A repository is the first material type DNCP can digest into useful static
 evidence and review proposals. `devnet digest register` stores local opt-in only;
-a later explicit `scan` pins committed HEAD and reads recognized bounded docs/
+a later explicit `scan` pins committed HEAD or `--revision` and reads recognized bounded docs/
 manifests/config/Python AST material. Dirty files, source/Git writes, repository
 execution, dependency installation, LLM calls, external transmission, and
 scheduled reporting are outside the slice.
@@ -109,7 +109,9 @@ scheduled reporting are outside the slice.
 Output includes material/reference/revision, extractor/version/time, evidence
 links/digests/paths/lines, material items, errors/exclusions/limits, and bounded
 untargeted/repeated residue. Counts are frequency, not independent corroboration.
-An already-built Fabric cache supplies provisional candidate matches, not a
+The material-neutral extraction protocol is separate from repository registration
+and comparison; one `digest` CLI exposes the coherent implementation.
+An already-built matching-root canonical-only Fabric cache supplies provisional candidate matches, not a
 complete product-library graph, novelty proof, or trust judgment. Human review
 may reuse/customize/extend/integrate, propose knowledge, defer or reject; the
 destination product retains ownership and the incubator is optional.
@@ -118,6 +120,7 @@ No auto-adoption, code copying, dispatch, canonical creation/promotion, queue
 mutation or phone-home reporting occurs. This composes existing DNCP observation/
 AST/Fabric pieces, not a new product, other digester, concierge or router.
 Specialist SBOM/symbol extractors require demonstrated gaps before adoption.
-See [README.md](README.md) for commands/contract/limits and
+See [README.md](README.md) for commands/limits,
+[the shared contract](docs/digester-contract.md) for extraction boundaries, and
 [BACKLOG.md](BACKLOG.md) for bounded acceptance evidence; prior background/
 blackboard and graph-wide delivery gates remain open.

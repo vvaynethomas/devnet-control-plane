@@ -260,13 +260,14 @@ Fabric search, not a new product, mandatory agent reporting protocol, or
 centralized owner of other products' libraries. Phone-home remains optional.
 
 Registering records consent metadata only; **it never scans**. A separate explicit
-command reads one pinned committed `HEAD` revision. Unregistered or disabled
+command reads one pinned committed revision (`HEAD` by default). Unregistered or disabled
 repositories are refused before repository observation:
 
 ```powershell
 devnet digest register 'C:\path\to\selected-repository'
 devnet digest list
 devnet digest scan 'C:\path\to\selected-repository' --target 'sqlite reuse'
+devnet digest scan 'C:\path\to\selected-repository' --revision '<commit-or-ref>'
 devnet digest disable 'C:\path\to\selected-repository'
 ```
 
@@ -288,6 +289,12 @@ failure rather than remote ingestion. No LLM, extractor download, external
 transmission, or paid service is needed. Detection is incomplete: review bundles
 locally and do not transmit potentially sensitive evidence indiscriminately.
 
+The shared [material-neutral contract](docs/digester-contract.md) lives in
+`control_plane\digester.py`: `digest(MaterialReference, target) -> Digestion`
+performs extraction only. `control_plane\repo_metabolizer.py` supplies the single
+repository implementation plus opt-in orchestration and cached comparison.
+There is no separate `metabolizer` CLI or competing scan/review database.
+
 The versioned **material-neutral bundle** includes the repository input reference,
 exact revision and committed-view semantics; extractor name/version, Git version
 and observation time; extracted material items; file/blob/SHA-256/path/line
@@ -304,9 +311,13 @@ the same digest. It does not assert correctness, trust, or file-independent evid
 
 Recognized first-slice inputs: Markdown headings/notable TODO/idea/decision/
 limitation/warning lines, bounded Python module docstrings/top-level exported
-symbols/import observations, `package.json` dependency declarations,
-`pyproject.toml`, `requirements.txt`, `Cargo.toml`, `go.mod`, selected configuration
-files and `.github` YAML configuration. Non-JSON manifest declarations remain
+symbols/import observations, `package.json`/`composer.json` dependency declarations,
+simple `requirements*.txt` declarations, `pyproject.toml`, `Cargo.toml`, `go.mod`,
+selected configuration files and `.github` YAML configuration. Markdown fences
+are excluded from topic/notable-line extraction; private symbols, non-targeted
+manifest fields, unsupported files and unparsed requirement directives remain
+bounded residue. Duplicate JSON fields and malformed dependency groups are
+reported as errors, not accepted as partial manifests. TOML/Go manifest declarations remain
 static evidence, not fully parsed/resolved dependencies. There is no complete
 SBOM, cross-language symbol graph, runtime behavior analysis, or unrestricted
 source summarization. Syft is a candidate only if a resolved dependency/SBOM gap
@@ -317,27 +328,32 @@ not copied modules or runtime imports from another checkout.
 Bounds: at most 1 MiB of Git tree metadata (excess is an explicit refusal),
 100 recognized files, 128 KiB per file, 1 MiB total content, 100 material items,
 1,000 notable observations, 30 residue groups with at most three evidence refs
-and 300 display characters each, and ten comparison queries with five cached
-matches each. Files/items/observations beyond limits have counted omissions.
+and 300 display characters each, 100 omitted-file evidence references, and ten
+comparison queries with five cached matches each. Files/items/observations and
+evidence references beyond limits have counted omissions.
 Repeated full normalized observations get occurrence counts and digests;
 distinct long texts are not merged merely because their display prefixes match.
 Residue retains notable untargeted material and repetitions as **frequency
 signals only**, never independence, corroboration, trust, or fabricated
 serendipity. There is no claim to preserve every possible insight from a repository.
 
-Comparison uses only the **already-built Fabric cache** in the chosen data
+Comparison uses only the **already-built, matching-root, canonical-only Fabric cache** in the chosen data
 directory; it never initializes/rebuilds that cache or scans other repositories/
 registries/modules. Available capability/product records are only those already
 represented in the cache. Missing/corrupt cache is explicitly unavailable with
-no-match/novelty uncertainty; cache timestamps/root provenance and incomplete
+no-match/novelty uncertainty; wrong-root, legacy and conversation-containing
+caches are not searched. Cache timestamps/root provenance and incomplete
 product-library graph coverage remain visible. Ordinary phone-home checks and
 their optional module discovery are separate operations, not triggered by
 digestion. There is no external component search.
 
 Proposals cite material evidence, query, cached matches/status/provenance, and
-text-relevance rationale. Human options include existing capability, potential
-solution needing suitability/trust review, customize/extend/integrate, new
-knowledge/idea, defer, or reject. Similarity does not prove trust; no match does
+text-relevance rationale. The four human dispositions are **maps to existing
+capability**, **trusted solution to adopt**, **extend/customize/integrate**, and
+**new knowledge/idea**; **defer** and **reject** are separate review actions.
+These are advisory options, not automatic classifications or persisted review
+events. Even choosing adoption is a human judgment, not an adoption operation.
+Similarity does not prove trust; no match does
 not prove novelty. The destination product owns its library. The incubator is
 an optional human-governed destination, not mandatory ownership or automatic
 canonical record creation. Only the user/product owner chooses what to retain,

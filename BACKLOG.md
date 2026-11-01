@@ -140,9 +140,10 @@ producer work or the DNCP consumer integration is implemented here.
 
 The user approved an optional first repository digester as composition of DNCP
 pieces, not a new product or mandatory reporting obligation. `control_plane\digester.py`
-and `cli.py` add explicit `digest register/list/scan/disable`; a flag records only
+defines the material-neutral extraction protocol; `control_plane\repo_metabolizer.py`
+and `cli.py` provide one implementation and explicit `digest register/list/scan/disable`; a flag records only
 opt-in metadata and never triggers scanning. Scan refuses unregistered/disabled
-repositories, pins committed HEAD, and extracts bounded static material without
+repositories, pins a committed revision (`HEAD` or explicit `--revision`), and extracts bounded static material without
 working-tree/Git-state modification, executing repository code, installing
 dependencies, LLM calls or external transmission. Phone-home remains optional.
 
@@ -154,8 +155,10 @@ corroboration. Limits and omissions are reported, not indiscriminate source copi
 
 Cached Fabric comparisons provide candidate matches/rationale/provenance with
 incomplete inventory warnings, not full product-library graph knowledge or proof
-of novelty/trust. Human-review options cover existing capability, potential
-solution review, customize/extend/integrate, new knowledge/idea, defer and reject.
+of novelty/trust. Wrong-root/legacy/conversation-containing caches are refused.
+Four human dispositions cover mapping to existing capability, trusted solution
+to adopt, extend/customize/integrate, and new knowledge/idea; defer/reject remain
+review actions, not extra dispositions. No review-event database is added.
 The destination product owns its library; the incubator is optional. There is
 no automatic adoption, dispatch, source copying, canonical creation, queue
 update, intake submission or promotion.
@@ -164,6 +167,12 @@ update, intake submission or promotion.
 unchanged source/Git files including dirty files, deterministic revision evidence,
 bounded omissions/residue, actual repetition counts rather than identical display
 prefixes, cached-only comparisons, and CLI behavior without phone-home submission.
+Reconciliation retains the bounded Git reader and one `digest` CLI while adding
+pure typed extraction, historical revision selection, stricter JSON/Markdown/
+requirements parsing, repeated candidate counts, private-symbol/unsupported-file
+residue, and bounded omitted-file evidence. Combined phone-home/digester tests
+cover the integrated branch, including installed packaging and the optional MCP
+protocol. See [the shared contract](docs/digester-contract.md).
 This does not close DNCP-008/009's earlier graph/blackboard/background requirements.
 Syft/SCIP remain conditional specialist candidates, not dependencies of this slice;
 catalog patterns are prior art only. See the README for exact limits and supported
