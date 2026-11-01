@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local databases and runtime data (never committed)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.devnet/
+
+# Distribution builds (tracked via release manifests)
+dist/
+build/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
