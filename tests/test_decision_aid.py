@@ -36,7 +36,7 @@ class TestDecisionAid(unittest.TestCase):
 
     def write_record(
         self, record_id: str, kind: str, tags: list[str],
-        upstream: list[str], body: str,
+        upstream: list[str], body: str, status: str = "provisional",
     ) -> None:
         folder = self.factory / "knowledge" / kind
         folder.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ class TestDecisionAid(unittest.TestCase):
         path.write_text(
             "---\n"
             f'id: "{record_id}"\ntitle: "Fixture {record_id}"\ntype: "{kind}"\n'
-            'status: "provisional"\ncreated_date: "2026-11-01"\n'
+            f'status: "{status}"\ncreated_date: "2026-11-01"\n'
             f"tags: {json.dumps(tags)}\nupstream_refs: {json.dumps(upstream)}\n"
             "downstream_refs: []\n---\n" + body,
             encoding="utf-8",
@@ -89,6 +89,24 @@ class TestDecisionAid(unittest.TestCase):
         self.assertFalse(list(self.factory.rglob("*.sqlite")))
         self.paths["PAT-9870"].unlink()
         self.assertEqual(build_decision_aid(self.factory)["records"], [])
+
+    def test_active_and_draft_records_do_not_imply_approval(self) -> None:
+        self.write_record(
+            "FND-9873", "finding", ["capability-routing"], ["SRC-9876"],
+            "An active finding records a hypothesis, not a verified capability.", status="active",
+        )
+        self.write_record(
+            "PAT-9872", "pattern", ["capability-routing"], ["FND-9873"],
+            "A draft pattern requires evaluation and manual override.", status="draft",
+        )
+        aid = build_decision_aid(self.factory, "capability-routing")
+        self.assertEqual({r["status"] for r in aid["records"]}, {"active", "draft"})
+        self.assertIn("not verified approval", aid["uncertainty"])
+        self.assertTrue(all(ref["resolved"] for r in aid["records"] for ref in r["upstream_refs"]))
+        html = self.workbench().render_decision_aid("capability-routing")
+        self.assertIn("badge-neutral\">active", html)
+        self.assertIn("badge-neutral\">draft", html)
+        self.assertIn("not verified approval", html)
 
     def test_fabric_and_existing_discovery_remain_usable(self) -> None:
         entities = collect_knowledge_entities(self.factory)
