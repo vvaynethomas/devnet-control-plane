@@ -12,6 +12,7 @@ import webbrowser
 
 from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PACKAGE_VERSION, REGISTRY_PATH
 from .capabilities import discover_capabilities
+from .decision_aid import DECISION_TOPICS, build_decision_aid
 from .fabric import FabricIndex
 from .interaction_lab import InteractionFrameEngine
 from .portfolio import open_repo_location, scan_portfolio
@@ -723,7 +724,82 @@ class ControlPlaneWorkbench:
         </section>
         """
 
-    def render_capabilities_tab(self, problem_query: str = "") -> str:
+    def render_decision_aid(
+        self, topic: str = "infrastructure-decision", operator_context: str = "",
+        problem_query: str = "",
+    ) -> str:
+        options = "".join(
+            f'<option value="{escape(key)}" {"selected" if key == topic else ""}>'
+            f'{escape(value["title"])}</option>'
+            for key, value in DECISION_TOPICS.items()
+        )
+        form = f"""
+        <section class="panel">
+          <h2>Decision Aid — Review Before Committing</h2>
+          <p class="muted">Read-only guidance from tagged canonical incubator records, not a provider selector or optimizer.</p>
+          <form method="get" action="/">
+            <input type="hidden" name="tab" value="capabilities">
+            <input type="hidden" name="prob" value="{escape(problem_query)}">
+            <label for="aid-topic">Decision topic</label>
+            <select id="aid-topic" name="aid_topic">{options}</select>
+            <label for="aid-context">Operator context &amp; constraints (unverified)</label>
+            <textarea id="aid-context" name="aid_context" style="width:100%;height:80px;"
+              placeholder="Project, required affordances, context/access evidence, operational constraints, alternatives…">{escape(operator_context)}</textarea>
+            <p class="muted">Do not enter secrets. Inputs are not persisted by DNCP, but GET URLs may appear in browser history.</p>
+            <button type="submit" class="btn">Review Canonical Guidance</button>
+          </form>
+        """
+        try:
+            aid = build_decision_aid(self.factory_root, topic, operator_context)
+        except (OSError, ValueError) as exc:
+            return form + f'<p role="alert">Decision aid unavailable: {escape(str(exc))}</p></section>'
+        questions = "".join(f"<li>{escape(question)}</li>" for question in aid["questions"])
+        alternatives = "".join(f"<li>{escape(option)}</li>" for option in aid["alternatives"])
+        cards = []
+        for record in aid["records"]:
+            references = "".join(
+                f'<li>{_chip_link(ref["id"]) if ref["resolved"] else escape(ref["id"])} '
+                f'— {escape(ref["title"])} ({escape(ref["status"])})</li>'
+                for ref in record["upstream_refs"]
+            ) or "<li>No upstream provenance recorded; verify the source before relying on this guidance.</li>"
+            cards.append(f"""
+            <div class="card">
+              <strong>{_chip_link(record['id'])} {escape(record['title'])}</strong>
+              {_badge(record['status'], 'neutral')} {_badge(record['kind'], 'neutral')}
+              <p class="muted">Canonical path: <code>{escape(record['path'])}</code><br>
+                Record date (not freshness verification): {escape(record['created_date'] or 'unknown')}</p>
+              <details><summary>Read canonical guidance &amp; alternatives</summary>
+                <pre style="white-space:pre-wrap;overflow-wrap:anywhere;">{escape(record['body'])}</pre>
+              </details>
+              <details><summary>Upstream source &amp; provenance</summary><ul>{references}</ul></details>
+            </div>
+            """)
+        empty = (
+            '<p role="status">No canonical records with the selected topic tag were found. '
+            'Register provisional records in the incubator; no recommendation can be inferred from absence.</p>'
+        )
+        context = (
+            f'<p><strong>Your context (not verified):</strong> {escape(aid["operator_context"])}</p>'
+            if aid["operator_context"] else
+            '<p class="muted">No project constraints supplied; this is general guidance, not a project-specific recommendation.</p>'
+        )
+        return form + f"""
+          {context}
+          <p class="muted">{escape(aid['uncertainty'])}</p>
+          <div class="grid-2">
+            <div><h3>Questions to resolve</h3><ul>{questions}</ul></div>
+            <div><h3>Alternatives to compare (not ranked)</h3><ul>{alternatives}</ul></div>
+          </div>
+          <p class="muted">Topic tags select records, not readiness. Records are read from the incubator now;
+            rebuild Fabric after canonical changes to refresh its linked entity inspector.</p>
+          {''.join(cards) or empty}
+        </section>
+        """
+
+    def render_capabilities_tab(
+        self, problem_query: str = "", aid_topic: str = "infrastructure-decision",
+        aid_context: str = "",
+    ) -> str:
         cap = discover_capabilities(problem_query, self.factory_root, self.fabric)
         s = cap["summary"]
 
@@ -775,6 +851,7 @@ class ControlPlaneWorkbench:
             )
 
         return f"""
+        {self.render_decision_aid(aid_topic, aid_context, problem_query)}
         <div class="stats-row">
           <div class="stat-card"><div class="stat-label">Cataloged Capabilities</div><div class="stat-value">{s['total_cataloged_capabilities']}</div><div class="stat-sub">Skills, Runbooks, Patterns, Python Modules</div></div>
           <div class="stat-card"><div class="stat-label">Matching Tools &amp; Modules</div><div class="stat-value">{s['matching_tools_and_modules']}</div><div class="stat-sub">Exploit before building</div></div>
@@ -787,6 +864,8 @@ class ControlPlaneWorkbench:
           <p class="muted">Describe a problem or capability (e.g., <code>sqlite search</code>, <code>rclone cloud</code>, <code>stewardship</code>, <code>duplicate hash</code>, <code>interaction frame</code>) to discover existing tools, modules, patterns, and prior findings.</p>
           <form method="get" action="/" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
             <input type="hidden" name="tab" value="capabilities">
+            <input type="hidden" name="aid_topic" value="{escape(aid_topic)}">
+            <input type="hidden" name="aid_context" value="{escape(aid_context)}">
             <input type="search" name="prob" value="{escape(problem_query)}" placeholder="Describe your problem or needed capability…" style="flex:1;min-width:300px;">
             <button type="submit" class="btn btn-primary">Discover Existing Leverage</button>
             <a class="btn" href="/?tab=capabilities&amp;prob=sqlite+fts5+index">Try: SQLite Index</a>
@@ -1373,6 +1452,20 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                 prob = qs.get("prob", [""])[0]
                 self._send_json(discover_capabilities(prob, workbench.factory_root, workbench.fabric))
                 return
+            if parsed.path == "/api/decision-aid":
+                try:
+                    aid = build_decision_aid(
+                        workbench.factory_root,
+                        topic=qs.get("topic", ["infrastructure-decision"])[0],
+                        operator_context=qs.get("context", [""])[0],
+                    )
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                except OSError as exc:
+                    self._send_json({"error": f"Decision aid unavailable: {exc}"}, status=500)
+                else:
+                    self._send_json(aid)
+                return
             if parsed.path == "/api/handoff":
                 from control_plane.handoff import compile_context_handoff
                 sess = qs.get("session", [None])[0]
@@ -1423,7 +1516,11 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                 )
                 self._send_html(_layout("conversations", "Conversations & Tokenomics", body, flash=flash))
             elif tab == "capabilities":
-                body = workbench.render_capabilities_tab(problem_query=qs.get("prob", [""])[0])
+                body = workbench.render_capabilities_tab(
+                    problem_query=qs.get("prob", [""])[0],
+                    aid_topic=qs.get("aid_topic", ["infrastructure-decision"])[0],
+                    aid_context=qs.get("aid_context", [""])[0],
+                )
                 self._send_html(_layout("capabilities", "Capability Discovery", body, flash=flash))
             elif tab == "interaction":
                 body = workbench.render_interaction_tab(

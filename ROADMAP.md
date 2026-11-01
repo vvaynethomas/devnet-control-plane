@@ -30,3 +30,7 @@ Before declaring v0.1.0 delivered, resolve DNCP-001 packaging/CLI blockers and c
 - **Model Context Protocol (MCP) Server:** Native `devnet-context-server` allowing any MCP-compliant agent (Claude Code, Antigravity, Cursor) to pull situational context without human copy-pasting.
 
 DNCP-011 (local model bridge) and DNCP-012 (ALM consumer exchange) remain unscheduled P3 backlog items; the configurable outbound completion client is only partial evidence for DNCP-011. Versions above are scope targets, not release commitments or acceptance records.
+
+## Unreleased Advisory Integration (DNCP-013)
+
+The existing Capability Discovery pillar now surfaces infrastructure-decision, coordination/recoverability, and capability-routing guidance from canonical incubator records through an explicit tag contract. The Decision Aid shows operator-entered constraints, questions, unranked alternatives, statuses and provenance without dispatch, provider selection, cost/readiness scores, or a second knowledge store. This is a bounded advisory slice awaiting acceptance, not delivery of the planned epistemic matrix, Metabolizer, MCP server, or ALM exchange.

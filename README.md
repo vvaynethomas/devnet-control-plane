@@ -19,6 +19,26 @@
 | **5. Capability Discovery** | `control_plane/capabilities.py` | "Have we solved this before? Do we have a tool?" Scans local code modules using Python AST parsing to prevent duplicate tool creation. |
 | **6. Interaction Lab** | `control_plane/interaction_lab.py` | Composable `InteractionFrame` engine (Presentation, UserModel, AssistantModel, Relationship). Runs side-by-side prompt benchmarks with human rubric rating. |
 
+### Read-Only Decision Aid (Unreleased Integration)
+
+Capability Discovery now includes a **Decision Aid** for infrastructure/hosting, coordination/recoverability, and capability/context routing. Select a topic and enter non-sensitive project constraints to review canonical incubator guidance, unranked alternatives, review questions, record statuses, and upstream provenance. Inputs remain unverified and do not change ranking or establish tool access. No provider is selected, no assignment is dispatched, and no deployment or approval is performed. Existing capability search remains available alongside the aid.
+
+The incubator remains the source of truth; DNCP does not copy the supplied notes or create a second knowledge store. Configure `FACTORY_ROOT` to the intended incubator checkout. The aid reads current records through the existing Fabric collector; rebuild Fabric after canonical changes to refresh linked entity inspectors. A missing directory or read failure is reported explicitly; no tagged records means guidance is unavailable, not that no relevant capability exists.
+
+**Record contract:** use existing Fabric-supported directories (`knowledge/`, project READMEs/artifacts, runbooks/workflows) and scalar frontmatter `id`, `title`, `type`, `status`, `created_date`; use inline arrays for `tags`, `upstream_refs`, and `downstream_refs`. Include one or more exact topic tags: `infrastructure-decision`, `coordination-recoverability`, `capability-routing`. Record IDs are discovered, not hardcoded. Provisional labels, unresolved references, and missing dates stay visible; neither record status nor a source's vendor opinion proves current operational readiness.
+
+The read-only endpoint is `/api/decision-aid?topic=capability-routing&context=local-only`; the GUI uses `/?tab=capabilities&aid_topic=capability-routing`. Context is not persisted by DNCP, but GET URLs may appear in browser history; never enter secrets. The helper can also be called from a source checkout independently of the currently missing CLI:
+```python
+from pathlib import Path
+from control_plane.decision_aid import build_decision_aid
+
+aid = build_decision_aid(
+    factory_root=Path("path-to-incubator"),
+    topic="capability-routing",
+    operator_context="Need repository editing; access has not been verified.",
+)
+```
+
 ---
 
 ## Architectural Relationship to ALM (Agent Lifecycle Management)

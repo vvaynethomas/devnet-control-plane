@@ -72,6 +72,7 @@ def collect_knowledge_entities(factory_root: Path = FACTORY_ROOT) -> dict[str, d
             "kind": fm.get("type", "record"),
             "status": fm.get("status", "draft"),
             "created_date": fm.get("created_date", ""),
+            "tags": fm.get("tags", []),
             "path": rel,
             "abs_path": str(path.resolve()),
             "upstream_refs": fm.get("upstream_refs") if isinstance(fm.get("upstream_refs"), list) else [],

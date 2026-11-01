@@ -18,6 +18,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open |
 | DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
+| DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
 
 ## Evidence and Remaining Acceptance Gates
 
@@ -32,5 +33,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-011 | `InteractionFrameEngine._try_live_llm()` accepts `OPENAI_BASE_URL` and `INTERACTION_LAB_MODEL`, but requires a nonempty `OPENAI_API_KEY` and falls back to a labeled deterministic preview on failure. | Demonstrate real offline completions against supported local runtimes, appropriate local authentication, and persisted model/mode evidence. A configured URL or deterministic preview alone does not prove a native bridge. |
 
 No outstanding item was fully closed by this audit. DNCP-002 is provisionally implementation-complete only; priorities and dependencies remain unchanged. See [ROADMAP.md](ROADMAP.md) for planned release scope.
+
+**Subsequent integration, separate from the audit:** DNCP-013 implements advisory surfacing only. `control_plane/decision_aid.py` reuses the canonical Fabric collector and exact topic tags; `tests/test_decision_aid.py` covers provisional status, current-source reads, provenance, missing data/errors, escaping, and the read-only HTTP/UI surface. Cross-repository record compatibility and operator acceptance are separate gates; this does not finish DNCP-008/DNCP-009/DNCP-012 or implement a routing optimizer. Generic queue discovery, P3 parser repair, hosting deployment, autonomous execution, and credentials remain outside this slice.
 
 **Queue-consumer limitation:** `control_plane/queues.py` recognizes only P0-P2 in this five-column format, so DNCP-011/DNCP-012 P3 rows are misinterpreted by that parser. Preserve their P3 priorities here; verify a parser repair before relying on aggregated priority/dependency data for those rows.
