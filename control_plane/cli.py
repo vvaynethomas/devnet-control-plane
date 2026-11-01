@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument("repository", type=Path)
         if name == "scan":
             sub.add_argument("--target", default="", help="Optional focus; notable untargeted material is retained as residue")
+            sub.add_argument("--revision", default="HEAD", help="Committed revision to read; resolved once without checkout or fetch")
     digest.add_parser("list")
     phone = commands.add_parser("phone-home").add_subparsers(dest="operation", required=True)
     check = phone.add_parser("check", help="Check reusable capabilities before building")
@@ -77,9 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "digest":
-            from .digester import RepositoryDigester
+            from .repo_metabolizer import RepositoryMetabolizer
             from .fabric import FabricIndex
-            digester = RepositoryDigester(
+            digester = RepositoryMetabolizer(
                 args.data_dir, FabricIndex(args.data_dir / "control_plane_fabric.sqlite", args.factory_root),
             )
             if args.digest_operation == "list":
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.digest_operation == "disable":
                 output = digester.disable(args.repository)
             else:
-                output = digester.scan(args.repository, args.target)
+                output = digester.scan(args.repository, args.target, args.revision)
             print(json.dumps(output, indent=2, ensure_ascii=False))
             return 0
         service = PhoneHome(args.factory_root, args.network_root, args.data_dir)
