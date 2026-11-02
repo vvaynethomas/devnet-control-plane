@@ -247,7 +247,16 @@ successful empty answers. Stdio uses SDK negotiation and no HTTP MCP or external
 connections. This bounded capability/intake adapter does **not** finish DNCP-010's
 planned live-state/Metabolizer/handoff server.
 
-Only `serve`, `mcp`, `phone-home`, `digest`, version/help are implemented CLI commands.
+Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, version/help are implemented CLI commands.
+
+**DNCP-015 first consumer slice:** `devnet conversation-library --library
+'C:\Private\ConversationHub\library.sqlite'` explicitly reads a closed producer
+version-1 library without collection or persistence. It prints unredacted
+normalized observations and provenance locally; `--expected-snapshot` rejects
+changed evidence. Original-source freshness remains unknown. See the
+[consumer contract and privacy limits](docs/conversation-library-consumer.md).
+Existing Fabric, Conversations and Handoff surfaces are not migrated.
+
 Earlier intended status/search/discover/handoff/eval-frames/verify-release CLI
 commands remain unimplemented; their engines/UI are not promises of CLI support.
 
@@ -398,8 +407,10 @@ DNCP-005 collection maps to its ACH-004 intake; DNCP-004 maps to ACH-005 watcher
 ACH-003 owns local adapters. The user-directed reuse direction is to adopt
 `copilot-session-tools` (reported MIT/PyPI) for Copilot CLI/VS Code and add
 ChatGPT/Antigravity adapters, subject to the product's own front-door and component
-verification. DNCP-015 is only a consumer-integration proposal, not another
-collector backlog. Owner reconciliation of duplicate queues remains open.
+verification. DNCP-015 now has a bounded explicit-path CLI consumer against a
+pinned version-1 library, not another collector backlog; Fabric, Conversations
+and Handoff migration and owner acceptance remain open. Owner reconciliation
+of duplicate queues remains open.
 Each follow-on must run the phone-home check before design/code.
 
 Foundations to extend: `fabric.py` collector/FTS5/provenance, `capabilities.py`
