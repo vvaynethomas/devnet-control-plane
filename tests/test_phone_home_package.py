@@ -1,6 +1,7 @@
 """Package smoke checks from unrelated working directories and isolated installs."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -67,6 +68,16 @@ class TestPhoneHomePackage(unittest.TestCase):
                                            "--factory-root", str(self.factory), "--network-root", str(self.network),
                                            "--data-dir", str(self.data), "phone-home", "check", "sqlite"])
                 self.assertIn("decision_ladder", result.stdout)
+                material_file = self.root / f"supplied-{index}.csv"
+                material_file.write_text("name,direction\nfixture,reuse\n", encoding="utf-8")
+                ingested = self.run_command([str(python), "-m", "control_plane.cli",
+                                             "--factory-root", str(self.factory),
+                                             "--data-dir", str(self.data), "phone-home", "ingest",
+                                             str(material_file)])
+                receipt = json.loads(ingested.stdout)
+                self.assertTrue(receipt["review"]["ingested"])
+                self.assertFalse(receipt["review"]["acceptance_required"])
+                self.assertEqual(receipt["digestion"]["material"]["kind"], "csv")
                 if index == 0:
                     self.run_command([str(python), "-m", "pip", "install", "--quiet", f"{wheel}[mcp]"])
                     self.check_installed_mcp(python)

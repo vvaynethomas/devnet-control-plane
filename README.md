@@ -4,7 +4,7 @@
 
 `devnet-control-plane` is an autonomous system node designed to sit **above** all repositories in a local development network (e.g. `GitHub-Repos/*`). It eliminates manual "human message bus" overhead by providing unified visibility, queue management, cross-harness chat sync, capability discovery, and interaction frame evaluation.
 
-**Checkout status (2026-11-01):** 0.1.0 is the declared package version, not a verified published release. The six-tab workbench, CLI, installed registry, and local phone-home front door are present. Conversation discovery still runs on request; external ingestion accepts raw text only. Future collection belongs to the provisional standalone **PRJ-0006** chat product; DNCP retains consumer integration. See [BACKLOG.md](BACKLOG.md) for historical audit evidence, current acceptance gates, and ownership handoff; see [ROADMAP.md](ROADMAP.md) for planned work.
+**Checkout status (2026-11-01):** 0.1.0 is the declared package version, not a verified published release. The six-tab workbench, CLI, installed registry, and local phone-home front door are present. Explicit material ingestion covers bounded text/Markdown, CSV, HTML, Python and ZIP; conversation discovery still runs on request and its legacy external-chat importer accepts raw text only. Future chat collection belongs to the provisional standalone **PRJ-0006** chat product; DNCP retains consumer integration. See [BACKLOG.md](BACKLOG.md) for historical audit evidence, current acceptance gates, and ownership handoff; see [ROADMAP.md](ROADMAP.md) for planned work.
 
 ---
 
@@ -202,7 +202,7 @@ records under that existing contract where appropriate. Product-owned discoverie
 require review by their destination product owner; product-library routing and
 promotion are not implemented by this local inbox.
 
-Required fields: kind, title, summary, source_repo, reuse_query. Kinds:
+For report submissions, required fields: kind, title, summary, source_repo, reuse_query. Report kinds:
 discovery/tool/skill/runbook/module/finding/decision. Optional schema version
 defaults to 1; other versions and unknown fields fail. Bounds: 64 KiB serialized
 request, 200-character title, 20,000-character summary/external evidence,
@@ -251,14 +251,42 @@ Only `serve`, `mcp`, `phone-home`, `digest`, version/help are implemented CLI co
 Earlier intended status/search/discover/handoff/eval-frames/verify-release CLI
 commands remain unimplemented; their engines/UI are not promises of CLI support.
 
-### Repository metabolizer: first opt-in digester
+### General material ingestion: one explicit submission
 
-**Provisional direction:** a repository is the first kind of material the network
+Material is not limited to repositories or products. Explicitly supplied
+text/Markdown, CSV, HTML, Python source and ZIP containers use format adapters
+and the existing phone-home inbox, with **no repo opt-in, product membership,
+agent report or bilateral acceptance**. The provisional inbox is not a second
+acceptance stage; only consequential later execution/adoption/canonical promotion
+requires human approval. Raw input stays local, with no extraction, execution,
+fetching, LLM or automatic promotion.
+
+```powershell
+devnet phone-home ingest 'C:\inputs\notes.md' --target reuse
+devnet phone-home ingest 'C:\inputs\bundle.zip'
+```
+
+The same `kind: "material"` JSON variant works with existing CLI `submit`,
+loopback `POST /api/phone-home/submissions` and MCP `phone_home_submit`.
+Input identity/hash/member/line provenance, observations, explicitly declared
+direction, coverage gaps and bounded untargeted residue are retained separately
+from canonical knowledge. Repetition remains a frequency signal, not waste.
+The existing human UI remains a report form and shared inbox/export, not an
+upload form. See [exact formats, submission schema and limits](docs/material-ingestion.md):
+32 KiB inputs, 32 ZIP entries, 32 KiB/member, 128 KiB total uncompressed,
+100:1 maximum ratio, no links/path traversal/encryption/nested extraction.
+Only bounded evidence is persisted locally, not raw input/base64; that evidence
+can include text snippets and is unencrypted.
+
+### Repository metabolizer: opt-in whole-repository scanning
+
+**Provisional direction:** a repository is one kind of material the network
 can digest into reviewable evidence, ideas, and reusable capability candidates.
 This is a composition of DNCP observation, Python AST extraction and cached
 Fabric search, not a new product, mandatory agent reporting protocol, or
 centralized owner of other products' libraries. Phone-home remains optional.
 
+Opt-in gates later whole-repository scans only, never explicitly supplied files.
 Registering records consent metadata only; **it never scans**. A separate explicit
 command reads one pinned committed revision (`HEAD` by default). Unregistered or disabled
 repositories are refused before repository observation:

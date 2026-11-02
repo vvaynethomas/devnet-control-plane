@@ -7,6 +7,7 @@ import sqlite3
 from typing import Any
 
 from .phone_home import KINDS, PhoneHome, PhoneHomeError
+from .material_ingestion import FORMATS
 
 
 def tool_contracts() -> list[dict[str, Any]]:
@@ -21,25 +22,39 @@ def tool_contracts() -> list[dict[str, Any]]:
 
     limit = {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}
     query = string(2000)
-    fields = {"kind": {"type": "string", "enum": list(KINDS)},
+    fields = {"kind": {"type": "string", "enum": [*KINDS, "material"]},
               "title": string(200, True), "summary": string(20000, True),
               "source_repo": string(1000, True), "reuse_query": string(2000, True),
               "schema_version": {"type": "integer", "const": 1, "default": 1},
               "external_evidence": string(20000)}
+    fields["target"] = string(2000)
+    fields["material"] = {
+        "type": "object", "additionalProperties": False,
+        "properties": {"name": string(200, True), "format": {"type": "string", "enum": list(FORMATS)},
+                       "identity": string(1000, True), "text": string(32768), "base64": string(43692)},
+        "required": ["name", "format"],
+        "oneOf": [{"required": ["text"]}, {"required": ["base64"]}],
+    }
     for name in ("source_session", "source_ref", "idempotency_key"):
         fields[name] = string(1000)
     for name in ("tags", "related_refs"):
         fields[name] = {"type": "array", "items": string(200, True), "maxItems": 20}
-    return [
+    contracts = [
         tool("phone_home_check", "Ordered local reuse check before building; human choice, no external research.",
              {"query": string(2000, True), "limit": limit}, ["query"]),
-        tool("phone_home_submit", "Append unverified provisional intake; never approves or writes incubator records.",
-             fields, ["kind", "title", "summary", "source_repo", "reuse_query"]),
+        tool("phone_home_submit", "Ingest supplied material or a report locally in one submission; no acceptance gate or canonical promotion.",
+             fields, ["kind"]),
         tool("phone_home_list", "List/export provisional intake with pagination, not canonical knowledge.",
              {"query": query, "limit": limit, "offset": {"type": "integer", "minimum": 0, "default": 0}}, []),
         tool("phone_home_get", "Export a submission for human review/manual promotion outside DNCP.",
              {"submission_id": string(100, True)}, ["submission_id"]),
     ]
+    contracts[1]["inputSchema"]["oneOf"] = [
+        {"properties": {"kind": {"const": "material"}}, "required": ["material"]},
+        {"properties": {"kind": {"enum": list(KINDS)}},
+         "required": ["title", "summary", "source_repo", "reuse_query"]},
+    ]
+    return contracts
 
 
 def create_mcp_server(service: PhoneHome) -> Any:

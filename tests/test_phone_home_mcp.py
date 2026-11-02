@@ -47,6 +47,14 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     self.assertEqual(exported.structuredContent, receipt)
                     listing = await session.call_tool("phone_home_list", {"limit": 1})
                     self.assertEqual(listing.structuredContent["total"], 1)
+                    material = await session.call_tool("phone_home_submit", {
+                        "kind": "material", "material": {"name": "note.md", "format": "markdown",
+                                                       "text": "# Topic\nGoal: reuse"},
+                    })
+                    self.assertFalse(material.isError)
+                    self.assertTrue(material.structuredContent["review"]["ingested"])
+                    self.assertFalse(material.structuredContent["review"]["acceptance_required"])
+                    self.assertEqual(material.structuredContent, self.service.get(material.structuredContent["id"]))
                     for tool, arguments in [
                         ("phone_home_check", {"query": ""}),
                         ("phone_home_check", {"query": "sqlite", "limit": 51}),
@@ -59,7 +67,7 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     ]:
                         failure = await session.call_tool(tool, arguments)
                         self.assertTrue(failure.isError)
-                    self.assertEqual(self.service.list()["total"], 1)
+                    self.assertEqual(self.service.list()["total"], 2)
         asyncio.run(exercise())
 
     def test_missing_optional_dependency_is_actionable(self) -> None:
