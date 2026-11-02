@@ -4,7 +4,7 @@
 
 `devnet-control-plane` is an autonomous system node designed to sit **above** all repositories in a local development network (e.g. `GitHub-Repos/*`). It eliminates manual "human message bus" overhead by providing unified visibility, queue management, cross-harness chat sync, capability discovery, and interaction frame evaluation.
 
-**Checkout status (2026-11-01):** 0.1.0 is the declared package version, not a verified published release. The six-tab workbench, CLI, installed registry, and local phone-home front door are present. Explicit material ingestion covers bounded text/Markdown, CSV, HTML, Python and ZIP; conversation discovery still runs on request and its legacy external-chat importer accepts raw text only. Future chat collection belongs to the provisional standalone **PRJ-0006** chat product; DNCP retains consumer integration. See [BACKLOG.md](BACKLOG.md) for historical audit evidence, current acceptance gates, and ownership handoff; see [ROADMAP.md](ROADMAP.md) for planned work.
+**Checkout status (2026-11-01):** 0.1.0 is the declared package version, not a verified published release. The six-tab workbench, CLI, installed registry, and local phone-home front door are present. Explicit material ingestion covers bounded text/Markdown, CSV, HTML, JSON, Python and ZIP; conversation discovery still runs on request and its legacy external-chat importer accepts raw text only. Future chat collection belongs to the provisional standalone **PRJ-0006** chat product; DNCP retains consumer integration. See [BACKLOG.md](BACKLOG.md) for historical audit evidence, current acceptance gates, and ownership handoff; see [ROADMAP.md](ROADMAP.md) for planned work.
 
 ---
 
@@ -254,7 +254,7 @@ commands remain unimplemented; their engines/UI are not promises of CLI support.
 ### General material ingestion: one explicit submission
 
 Material is not limited to repositories or products. Explicitly supplied
-text/Markdown, CSV, HTML, Python source and ZIP containers use format adapters
+text/Markdown, CSV, HTML, JSON, Python source and ZIP containers use format adapters
 and the existing phone-home inbox, with **no repo opt-in, product membership,
 agent report or bilateral acceptance**. The provisional inbox is not a second
 acceptance stage; only consequential later execution/adoption/canonical promotion
@@ -268,11 +268,14 @@ devnet phone-home ingest 'C:\inputs\bundle.zip'
 
 The same `kind: "material"` JSON variant works with existing CLI `submit`,
 loopback `POST /api/phone-home/submissions` and MCP `phone_home_submit`.
-Input identity/hash/member/line provenance, observations, explicitly declared
-direction, coverage gaps and bounded untargeted residue are retained separately
+Input identity/hash/member/line/JSON-pointer provenance, observations,
+explicitly declared direction, coverage gaps and bounded untargeted residue are retained separately
 from canonical knowledge. Repetition remains a frequency signal, not waste.
 The existing human UI remains a report form and shared inbox/export, not an
-upload form. See [exact formats, submission schema and limits](docs/material-ingestion.md):
+upload form. JSON contributes bounded object/array structure and canonical scalar
+observations only; it does not infer schema or meaning. TOML remains deferred
+because Python 3.10 is supported and there is no justified dependency. See
+[exact formats, submission schema and limits](docs/material-ingestion.md):
 32 KiB inputs, 32 ZIP entries, 32 KiB/member, 128 KiB total uncompressed,
 100:1 maximum ratio, no links/path traversal/encryption/nested extraction.
 Only bounded evidence is persisted locally, not raw input/base64; that evidence

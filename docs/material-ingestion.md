@@ -44,11 +44,11 @@ devnet phone-home ingest 'C:\inputs\unusual-extension' --format text --identity 
 devnet phone-home intake export INTAKE-returned-uuid
 ```
 
-The CLI infers only `.txt`, `.md`, `.csv`, `.html`, `.htm`, `.py`, `.zip`; otherwise
-the caller must specify a format. It reads only the named file, not its parent,
-repo or neighboring files. CLI identity defaults to the explicit absolute path.
-`--source-ref`, `--source-session` and `--idempotency-key` preserve caller context.
-Global root/data options still go before `phone-home`.
+The CLI infers `.txt`, `.md`, `.csv`, `.html`, `.htm`, `.json`, `.py`, and `.zip`;
+otherwise the caller must specify a format. It reads only the named file, not
+its parent, repo or neighboring files. CLI identity defaults to the explicit
+absolute path. `--source-ref`, `--source-session` and `--idempotency-key`
+preserve caller context. Global root/data options still go before `phone-home`.
 
 ## Reuse and local processing
 
@@ -58,10 +58,11 @@ candidate. This implementation extends that intake and the existing
 product/store. `SuppliedMaterialDigester` is pure extraction with byte-hash
 revision verification; persistence remains in `phone_home.sqlite`. Repository
 Git/manifest extractors remain unchanged because explicitly supplied streams
-need neither repository enumeration nor registration. Python AST, CSV, HTML and
-ZIP use Python's existing standard library (`ast`, `csv`, `html.parser`,
-`zipfile`); no third-party parser, downloaded extractor or LLM is required.
-No live external component search was performed or is required at ingestion.
+need neither repository enumeration nor registration. Python AST, CSV, HTML,
+JSON and ZIP use Python's existing standard library (`ast`, `csv`,
+`html.parser`, `json`, `zipfile`); no third-party parser, downloaded extractor
+or LLM is required. No live external component search was performed or is
+required at ingestion.
 
 ## Exact coverage
 
@@ -71,6 +72,7 @@ No live external component search was performed or is required at ingestion.
 | `markdown` | ATX headings and labeled directions outside backtick/tilde fences. | Ordinary body, frontmatter, setext headings and fenced lines remain observations/residue; links and embedded formats are not interpreted. |
 | `csv` | Comma-separated rows with the standard Excel CSV dialect; header and row items, including quoted multiline fields. Direction columns are `goal`, `intent`, `direction`, `purpose`, `decision` (case-insensitive). | No delimiter/type/schema inference or formula evaluation. Ragged rows remain observations with counted gaps; malformed quoting reports a parse gap, possibly after valid prefix rows. |
 | `html` | `HTMLParser` text data, entities decoded, with explicit labeled directions. | Scripts/styles/templates are not interpreted or returned as text. Markup, attributes, comments and hidden regions are coverage gaps; no DOM/rendering/accessibility fidelity. Malformed markup uses the standard parser's permissive recovery. No links, images or resources are fetched. |
+| `json` | JSON objects, arrays and primitive values as provisional structure/value observations. Object members are traversed in sorted-key order; arrays retain index order. Each observation carries a bounded JSON Pointer (RFC 6901 escaping), SHA-256/revision provenance and a document-level location marker. | No schema, domain meaning, trust, canonical status, or intent is inferred. Duplicate keys, non-standard constants and malformed JSON produce `json_parse_failed`; out-of-range numbers, sensitive-named fields and recognized secret values are omitted with gaps. |
 | `python` | Top-level function/async function/class declaration lines after `ast.parse`. | Imports, comments, docstrings, bodies, private and nested source remain bounded line observations, not runtime analysis. No imports, evaluation or execution; malformed syntax reports a parse gap. No direction inferred from Python strings/comments. |
 | `zip` | Supported members processed in archive order through the above adapters, in memory. | Unsupported suffixes and nested ZIPs remain named gaps with container provenance; no recursion, extraction or execution. |
 
@@ -96,6 +98,13 @@ references. Repeated items retain distinct line IDs; frequency is not waste,
 independence, corroboration or trust. Distinct long observations are not merged
 because truncated display prefixes happen to match. Output truncation and
 unparsed/unsupported regions are visible as counts and bounded gap references.
+JSON scalar observations use compact JSON value notation and preserve string
+whitespace exactly; object/array observations state their type and member/item
+count, while each child is independently observed at its JSON Pointer. JSON
+evidence does not claim exact source line offsets. Identical encoded scalar
+values share residue groups with distinct pointer references; distinct string
+values are not merged merely because their words differ only in whitespace.
+Untargeted observations remain present.
 
 ## Hard limits and refusals
 
@@ -124,6 +133,11 @@ patterns and sensitive filename patterns are omitted with visible gaps; parser
 failures never echo source snippets. Detection is incomplete: do not submit
 secrets or sensitive data. Filename and source metadata are still local evidence.
 An unsupported top-level format fails validation rather than selecting a default.
+JSON additionally visits at most **512 records across a submission**, limits
+nested values to **16 levels**, and displays at most **300 JSON Pointer
+characters** per evidence reference (with a full pointer hash when truncated).
+Sensitive field-name handling is a narrow omission guard, not a general secret
+scanner; escaped values matching recognized token patterns are omitted too.
 
 The SQLite inbox is local and **unencrypted**. The caller's raw bytes/base64 are
 not copied into storage; bounded extracted snippets and hashes **are** stored,
@@ -134,8 +148,10 @@ Provisional status describes evidence/canonical separation, not a second ingest
 acceptance stage. Human approval is required only for consequential later
 execution, adoption or canonical promotion; none is implemented automatically.
 
-Deferred: arbitrary encodings, PDFs, Office documents, images/OCR, JSON/TOML
-material adapters, other source languages, delimiter inference, nested/encrypted
-archives, larger/streaming uploads and cross-material semantic digestion.
+Deferred: arbitrary encodings, PDFs, Office documents, images/OCR, TOML material
+adapter, other source languages, delimiter inference, nested/encrypted archives,
+larger/streaming uploads and cross-material semantic digestion. TOML remains
+deferred because the package supports Python 3.10, before `tomllib` is in the
+standard library; no dependency is added for this bounded slice.
 No auto-promotion, dispatch, watcher/scheduler, utility chest, external
 transmission, new product ownership, or mandatory agent reporting is introduced.

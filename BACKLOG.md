@@ -178,3 +178,20 @@ Syft/SCIP remain conditional specialist candidates, not dependencies of this sli
 catalog patterns are prior art only. See the README for exact limits and supported
 static formats. No scheduled scan, other material digester, concierge or router
 is implemented.
+
+## Explicit Material-Adapter Follow-On
+
+The bounded `kind: "material"` phone-home slice in `docs/material-ingestion.md`
+now includes a JSON adapter in the current checkout. It records object/array
+structure and primitive values as bounded provisional observations with
+deterministic JSON Pointer evidence, repetition counts, source hashes and
+untargeted residue. Parse errors and depth/record/display limits remain visible;
+the adapter does not infer schema, trust, canonical status or intent. CLI
+`.json` inference and the existing shared submit pathway use the same digester.
+This does not alter whole-repository scanning or the separate conversation
+aggregator.
+
+TOML remains deferred: the package supports Python 3.10, where `tomllib` is not
+in the standard library, and this slice does not justify adding a dependency.
+Broader schema/semantic extraction, streaming input and other formats remain
+unimplemented.
