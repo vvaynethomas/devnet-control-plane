@@ -18,7 +18,7 @@ import zipfile
 from control_plane.cli import main
 from control_plane.digester import MaterialReference
 from control_plane.material_ingestion import (
-    MAX_INPUT_BYTES, MAX_ITEMS, MAX_MEMBERS, MAX_OBSERVATIONS,
+    MAX_INPUT_BYTES, MAX_ITEMS, MAX_JSON_DEPTH, MAX_JSON_RECORDS, MAX_MEMBERS, MAX_OBSERVATIONS,
     MaterialError, SuppliedMaterialDigester,
 )
 from control_plane.phone_home import PhoneHome, PhoneHomeError
@@ -129,6 +129,104 @@ class TestMaterialIngestion(unittest.TestCase):
             warnings.simplefilter("always")
             self.submit('value = "\\invalid escape"\n', "python")
         self.assertEqual(caught, [])
+
+    def test_json_nested_values_structure_repetition_provenance_and_determinism(self) -> None:
+        text = '{"nested":{"items":[{"value":"repeat"},{"value":"repeat"}]},"number":7,"null":null,"flag":true,"empty":[],"a/b~c":"escaped"}'
+        payload = self.payload(text, "json", "input.json")
+        payload["target"] = "not-present"
+        receipt = self.service.submit(payload)
+        digest = receipt["digestion"]
+        reference = MaterialReference("json", "input.json", hashlib.sha256(text.encode()).hexdigest(), "input.json")
+        digester = SuppliedMaterialDigester(text.encode(), "input.json", "json")
+        self.assertEqual(digester.digest(reference).to_dict(), digester.digest(reference).to_dict())
+        self.assertEqual(digest["material"]["revision"], hashlib.sha256(text.encode()).hexdigest())
+        self.assertEqual(digest["coverage"]["json_records"], 12)
+        self.assertEqual(digest["file_evidence"][0]["sha256"], hashlib.sha256(text.encode()).hexdigest())
+        self.assertEqual(digest["file_evidence"][0]["path"], "input.json")
+        groups = digest["residue"]["items"]
+        repeated = next(group for group in groups if group["observation"] == '"repeat"')
+        self.assertEqual(repeated["count"], 2)
+        self.assertEqual([ref["json_pointer"] for ref in repeated["evidence"]],
+                         ["/nested/items/0/value", "/nested/items/1/value"])
+        self.assertTrue(all(not group["target_match"] for group in groups))
+        pointers = {
+            ref.get("json_pointer")
+            for item in digest["items"]
+            for ref in [item["provenance"]]
+        }
+        self.assertIn("", pointers)
+        self.assertIn("/nested/items/0", pointers)
+        self.assertIn("/empty", pointers)
+        self.assertIn("/a~1b~0c", pointers)
+        self.assertTrue(all(item["status"] == "provisional" for item in digest["items"]))
+        self.assertFalse(digest["coverage"]["full_semantic_coverage"])
+
+    def test_json_parse_binary_secret_and_sensitive_field_gaps(self) -> None:
+        for text in ('{"broken":', '{"duplicate":1,"duplicate":2}', '{"number":NaN}'):
+            with self.subTest(text=text):
+                digest = self.submit(text, "json", "input.json")["digestion"]
+                self.assertEqual(digest["coverage"]["exclusions"]["json_parse_failed"], 1)
+                self.assertEqual(digest["items"], [])
+                self.assertNotIn(text, json.dumps(digest))
+
+        for raw, reason in ((b'{"value":"x\x00y"}', "binary_content"),
+                            (b'{"value":"' + b"\xff" + b'"}', "static_parse_failed")):
+            with self.subTest(reason=reason):
+                payload = {"kind": "material", "material": {
+                    "name": "input.json", "format": "json", "base64": base64.b64encode(raw).decode("ascii")}}
+                digest = self.service.submit(payload)["digestion"]
+                self.assertEqual(digest["coverage"]["exclusions"][reason], 1)
+                self.assertEqual(digest["items"], [])
+
+        secret = "ghp_" + "a" * 36
+        digest = self.submit(json.dumps({"value": secret}), "json", "input.json")["digestion"]
+        self.assertEqual(digest["coverage"]["exclusions"]["recognized_secret_content"], 1)
+        self.assertNotIn(secret, json.dumps(digest))
+        escaped_secret = json.dumps({"value": secret}).replace("g", r"\u0067")
+        digest = self.submit(escaped_secret, "json", "input.json")["digestion"]
+        self.assertEqual(digest["coverage"]["exclusions"]["recognized_secret_content"], 1)
+        self.assertNotIn(secret, json.dumps(digest))
+        digest = self.submit('{"password":"do-not-emit","visible":"safe"}', "json", "input.json")["digestion"]
+        self.assertEqual(digest["coverage"]["exclusions"]["sensitive_field"], 1)
+        self.assertNotIn("do-not-emit", json.dumps(digest))
+        self.assertTrue(any(gap["reason"] == "sensitive_field" for gap in digest["coverage"]["gaps"]))
+
+    def test_json_depth_record_size_and_display_limits(self) -> None:
+        deep = "[" * (MAX_JSON_DEPTH + 4) + "0" + "]" * (MAX_JSON_DEPTH + 4)
+        digest = self.submit(deep, "json", "deep.json")["digestion"]
+        self.assertEqual(digest["coverage"]["exclusions"]["json_depth_limit"], 1)
+        self.assertLessEqual(digest["coverage"]["json_records"], MAX_JSON_RECORDS)
+
+        many = json.dumps(list(range(MAX_JSON_RECORDS + 79)))
+        digest = self.submit(many, "json", "many.json")["digestion"]
+        self.assertEqual(digest["coverage"]["json_records"], MAX_JSON_RECORDS)
+        self.assertEqual(digest["coverage"]["exclusions"]["json_record_limit"], 80)
+        self.assertEqual(digest["coverage"]["observations"], MAX_OBSERVATIONS)
+
+        archive = self.archive([("first.json", json.dumps(list(range(300))).encode()),
+                                ("second.json", json.dumps(list(range(300))).encode())])
+        digest = self.service.submit(self.zip_payload(archive))["digestion"]
+        self.assertEqual(digest["coverage"]["json_records"], MAX_JSON_RECORDS)
+        self.assertGreater(digest["coverage"]["exclusions"]["json_record_limit"], 0)
+
+        digest = self.submit('{"amount":1e999}', "json", "number.json")["digestion"]
+        self.assertEqual(digest["coverage"]["exclusions"]["json_number_out_of_range"], 1)
+        self.assertNotIn("Infinity", json.dumps(digest))
+
+        oversized_value = "z" * 500
+        digest = self.submit(json.dumps({"large": oversized_value}), "json", "large.json")["digestion"]
+        group = next(group for group in digest["residue"]["items"] if group["text_truncated"])
+        self.assertTrue(group["text_truncated"])
+        self.assertNotIn(oversized_value, json.dumps(digest))
+
+        long_key = "k" * 500
+        digest = self.submit(json.dumps({long_key: "v"}), "json", "long-key.json")["digestion"]
+        reference = next(group for group in digest["residue"]["items"] if group["observation"] == '"v"')["evidence"][0]
+        self.assertTrue(reference["json_pointer_truncated"])
+        self.assertEqual(len(reference["json_pointer"]), 300)
+        self.assertNotIn(long_key, json.dumps(digest))
+        with self.assertRaises(MaterialError):
+            self.submit(" " * (MAX_INPUT_BYTES + 1), "json", "large.json")
 
     def test_pure_contract_no_persistence_and_hash_verification(self) -> None:
         raw = b"Goal: reuse"
@@ -266,6 +364,19 @@ class TestMaterialIngestion(unittest.TestCase):
         path.write_bytes(b"x" * (MAX_INPUT_BYTES + 1))
         with redirect_stderr(io.StringIO()):
             self.assertEqual(main(args + ["phone-home", "ingest", str(path)]), 1)
+
+    def test_cli_json_ingest_infers_format_and_preserves_source(self) -> None:
+        path = self.root / "explicit.json"
+        original = b'{"value":["local",3]}'
+        path.write_bytes(original)
+        output = io.StringIO()
+        args = ["--data-dir", str(self.root / "json-cli-runtime"), "--factory-root", str(self.root / "missing")]
+        with redirect_stdout(output):
+            self.assertEqual(main(args + ["phone-home", "ingest", str(path)]), 0)
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["digestion"]["material"]["kind"], "json")
+        self.assertEqual(receipt["digestion"]["file_evidence"][0]["sha256"], hashlib.sha256(original).hexdigest())
+        self.assertEqual(path.read_bytes(), original)
 
     def test_existing_loopback_endpoint_accepts_material_once(self) -> None:
         workbench = ControlPlaneWorkbench(self.root / "missing", self.root / "network", self.root / "api-runtime")

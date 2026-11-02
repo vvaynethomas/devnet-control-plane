@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--file", required=True, help="JSON request file, or - for stdin")
     ingest = phone.add_parser("ingest", help="Digest and ingest explicitly supplied local material in one submission")
     ingest.add_argument("file", type=Path)
-    ingest.add_argument("--format", choices=("text", "markdown", "csv", "html", "python", "zip"))
+    ingest.add_argument("--format", choices=("text", "markdown", "csv", "html", "json", "python", "zip"))
     ingest.add_argument("--identity", default=None, help="Original source identity; defaults to the explicit local path")
     ingest.add_argument("--target", default="")
     ingest.add_argument("--source-ref", default="")

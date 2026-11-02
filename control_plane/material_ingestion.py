@@ -11,6 +11,7 @@ import hashlib
 from html.parser import HTMLParser
 import io
 import json
+import math
 from pathlib import PurePosixPath
 import re
 import stat
@@ -30,12 +31,18 @@ MAX_RATIO = 100
 MAX_ITEMS = 64
 MAX_OBSERVATIONS = 256
 MAX_GROUPS = 30
-FORMATS = ("text", "markdown", "csv", "html", "python", "zip")
+MAX_JSON_RECORDS = 512
+MAX_JSON_DEPTH = 16
+MAX_JSON_POINTER_CHARS = 300
+FORMATS = ("text", "markdown", "csv", "html", "json", "python", "zip")
 EXTENSIONS = {".txt": "text", ".md": "markdown", ".csv": "csv", ".html": "html",
-              ".htm": "html", ".py": "python", ".zip": "zip"}
+              ".htm": "html", ".json": "json", ".py": "python", ".zip": "zip"}
 EXTRACTOR = "dncp-supplied-material-v1"
 INTENT = re.compile(r"^(?:[-*]\s*)?(TODO|FIXME|goal|intent|direction|decision|purpose)\s*:\s*(.+)", re.I)
 SENSITIVE_NAME = re.compile(r"(?i)(^\.env(?:\.|$)|secret|credential|private.?key|\.pem$|\.key$|\.p12$|\.pfx$|^id_rsa$|^id_ed25519$)")
+SENSITIVE_JSON_FIELD = re.compile(
+    r"(?i)(?:password|passwd|secret|token|credential|api[_-]?key|private[_-]?key|authorization|access[_-]?key)"
+)
 
 
 class MaterialError(ValueError):
@@ -56,6 +63,19 @@ def _safe_member(name: str) -> bool:
                         and not re.search(r'[:<>"|?*\x00-\x1f\x7f]', part)
                         and not re.match(r"(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)", part)
                         for part in parts))
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result or "\0" in key:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise ValueError(f"non-standard JSON constant: {value}")
 
 
 class _HTML(HTMLParser):
@@ -102,17 +122,26 @@ class SuppliedMaterialDigester:
         omissions: Counter[str] = Counter()
         observations: dict[str, dict[str, Any]] = {}
         observation_count = 0
+        json_record_count = 0
         tokens = set(re.findall(r"[a-z0-9_]+", target.lower()))
         gaps: list[dict[str, Any]] = []
 
-        def gap(path: str, reason: str) -> None:
-            omissions[reason] += 1
+        def gap(path: str, reason: str, json_pointer: str | None = None, count: int = 1) -> None:
+            omissions[reason] += count
             if len(gaps) < 64:
-                gaps.append({"path": path, "reason": reason})
+                record = {"path": path, "reason": reason}
+                if json_pointer is not None:
+                    encoded_pointer = json_pointer.encode("utf-8", "surrogatepass")
+                    record["json_pointer"] = json_pointer[:MAX_JSON_POINTER_CHARS]
+                    if len(json_pointer) > MAX_JSON_POINTER_CHARS:
+                        record["json_pointer_sha256"] = hashlib.sha256(encoded_pointer).hexdigest()
+                        record["json_pointer_truncated"] = True
+                gaps.append(record)
             else:
                 omissions["gap_reference_limit"] += 1
 
-        def emit(text: str, evidence: dict[str, Any], line: int, category: str = "") -> None:
+        def emit(text: str, evidence: dict[str, Any], line: int | None, category: str = "",
+                 json_pointer: str | None = None) -> None:
             nonlocal observation_count
             normalized = " ".join(text.split())
             if not normalized:
@@ -121,7 +150,15 @@ class SuppliedMaterialDigester:
                 omissions["observation_limit"] += 1
                 return
             observation_count += 1
-            ref = {**evidence, "line": line, "location_precision": "line"}
+            ref = {**evidence, "location_precision": "line" if json_pointer is None else "json_pointer"}
+            if line is not None:
+                ref["line"] = line
+            if json_pointer is not None:
+                encoded_pointer = json_pointer.encode("utf-8", "surrogatepass")
+                ref["json_pointer"] = json_pointer[:MAX_JSON_POINTER_CHARS]
+                if len(json_pointer) > MAX_JSON_POINTER_CHARS:
+                    ref["json_pointer_sha256"] = hashlib.sha256(encoded_pointer).hexdigest()
+                    ref["json_pointer_truncated"] = True
             match = bool(tokens and any(token in normalized.lower() for token in tokens))
             key = hashlib.sha256(normalized.encode()).hexdigest()
             group = observations.setdefault(key, {
@@ -141,6 +178,8 @@ class SuppliedMaterialDigester:
                 omissions["item_limit"] += 1
                 return
             identity = [material.identity, revision, evidence["path"], line, category, normalized]
+            if json_pointer is not None:
+                identity.insert(4, json_pointer)
             result.items.append({
                 "id": "MAT-" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()[:16],
                 "category": category, "title": normalized[:200], "detail": normalized[:300],
@@ -149,6 +188,7 @@ class SuppliedMaterialDigester:
             })
 
         def extract(raw: bytes, path: str, format: str) -> None:
+            nonlocal json_record_count
             evidence = {"path": path, "identity": material.identity, "revision": revision,
                         "sha256": hashlib.sha256(raw).hexdigest(), "size_bytes": len(raw),
                         "extractor": EXTRACTOR, "extractor_version": "1",
@@ -200,6 +240,69 @@ class SuppliedMaterialDigester:
                         emit(value, evidence, line, "declared_direction" if INTENT.match(value) else "html_text")
                     omissions["html_hidden_regions"] += parser.ignored
                     gap(path, "html_markup_attributes_comments_not_interpreted")
+                elif format == "json":
+                    try:
+                        document = json.loads(
+                            text,
+                            object_pairs_hook=_unique_json_object,
+                            parse_constant=_reject_json_constant,
+                        )
+                    except (json.JSONDecodeError, ValueError, RecursionError):
+                        gap(path, "json_parse_failed")
+                        return
+
+                    pending: list[tuple[Any, str, int]] = [(document, "", 0)]
+                    while pending:
+                        value, pointer, depth = pending.pop()
+                        if json_record_count >= MAX_JSON_RECORDS:
+                            gap(path, "json_record_limit", pointer)
+                            for _, skipped_pointer, _ in pending:
+                                gap(path, "json_record_limit", skipped_pointer)
+                            break
+                        json_record_count += 1
+                        if depth > MAX_JSON_DEPTH:
+                            gap(path, "json_depth_limit", pointer)
+                            continue
+
+                        if isinstance(value, dict):
+                            description = f"JSON object with {len(value)} members"
+                            category = "json_object"
+                            children = []
+                            for key in sorted(value):
+                                child_pointer = pointer + "/" + key.replace("~", "~0").replace("/", "~1")
+                                if SECRET_RE.search(key):
+                                    gap(path, "recognized_secret_content")
+                                elif SENSITIVE_JSON_FIELD.search(key):
+                                    gap(path, "sensitive_field", child_pointer)
+                                else:
+                                    children.append((value[key], child_pointer, depth + 1))
+                        elif isinstance(value, list):
+                            description = f"JSON array with {len(value)} items"
+                            category = "json_array"
+                            children = [(child, f"{pointer}/{index}", depth + 1)
+                                        for index, child in enumerate(value)]
+                        else:
+                            if isinstance(value, str) and "\0" in value:
+                                gap(path, "binary_content", pointer)
+                                continue
+                            if isinstance(value, str) and SECRET_RE.search(value):
+                                gap(path, "recognized_secret_content")
+                                continue
+                            if isinstance(value, float) and not math.isfinite(value):
+                                gap(path, "json_number_out_of_range", pointer)
+                                continue
+                            description = json.dumps(
+                                value, ensure_ascii=True, allow_nan=False, separators=(",", ":")
+                            )
+                            category = "json_value"
+                            children = []
+                        emit(description, evidence, None, category, pointer)
+
+                        available = max(0, MAX_JSON_RECORDS - json_record_count - len(pending))
+                        if len(children) > available:
+                            gap(path, "json_record_limit", pointer, len(children) - available)
+                            children = children[:available]
+                        pending.extend(reversed(children))
                 else:
                     fence: str | None = None
                     for line, value in enumerate(text.splitlines(), 1):
@@ -272,12 +375,15 @@ class SuppliedMaterialDigester:
         }
         result.coverage = {
             "input_bytes": len(self.raw), "files_read": len(result.file_evidence),
-            "observations": observation_count, "full_semantic_coverage": False,
+            "observations": observation_count, "json_records": json_record_count,
+            "full_semantic_coverage": False,
             "limits": {"input_bytes": MAX_INPUT_BYTES, "member_bytes": MAX_MEMBER_BYTES,
                        "total_uncompressed_bytes": MAX_TOTAL_BYTES, "members": MAX_MEMBERS,
                        "compression_ratio": MAX_RATIO, "items": MAX_ITEMS,
                        "observations": MAX_OBSERVATIONS, "observation_groups": MAX_GROUPS,
-                       "references_per_group": 3, "gap_references": 64},
+                       "references_per_group": 3, "gap_references": 64,
+                       "json_records": MAX_JSON_RECORDS, "json_depth": MAX_JSON_DEPTH,
+                       "json_pointer_chars": MAX_JSON_POINTER_CHARS},
             "exclusions": dict(sorted(omissions.items())), "gaps": gaps,
             "direction": "Explicit labeled declarations only; no inferred intent, authority or trust.",
             "execution": False, "external_requests": False,

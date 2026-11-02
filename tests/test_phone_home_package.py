@@ -68,8 +68,8 @@ class TestPhoneHomePackage(unittest.TestCase):
                                            "--factory-root", str(self.factory), "--network-root", str(self.network),
                                            "--data-dir", str(self.data), "phone-home", "check", "sqlite"])
                 self.assertIn("decision_ladder", result.stdout)
-                material_file = self.root / f"supplied-{index}.csv"
-                material_file.write_text("name,direction\nfixture,reuse\n", encoding="utf-8")
+                material_file = self.root / f"supplied-{index}.json"
+                material_file.write_text('{"name":["fixture"],"direction":"reuse"}', encoding="utf-8")
                 ingested = self.run_command([str(python), "-m", "control_plane.cli",
                                              "--factory-root", str(self.factory),
                                              "--data-dir", str(self.data), "phone-home", "ingest",
@@ -77,7 +77,9 @@ class TestPhoneHomePackage(unittest.TestCase):
                 receipt = json.loads(ingested.stdout)
                 self.assertTrue(receipt["review"]["ingested"])
                 self.assertFalse(receipt["review"]["acceptance_required"])
-                self.assertEqual(receipt["digestion"]["material"]["kind"], "csv")
+                self.assertEqual(receipt["digestion"]["material"]["kind"], "json")
+                self.assertTrue({item["category"] for item in receipt["digestion"]["items"]}
+                                <= {"json_object", "json_array", "json_value"})
                 if index == 0:
                     self.run_command([str(python), "-m", "pip", "install", "--quiet", f"{wheel}[mcp]"])
                     self.check_installed_mcp(python)
