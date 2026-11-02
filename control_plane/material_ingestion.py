@@ -141,9 +141,9 @@ class SuppliedMaterialDigester:
                 omissions["gap_reference_limit"] += 1
 
         def emit(text: str, evidence: dict[str, Any], line: int | None, category: str = "",
-                 json_pointer: str | None = None) -> None:
+                 json_pointer: str | None = None, preserve_whitespace: bool = False) -> None:
             nonlocal observation_count
-            normalized = " ".join(text.split())
+            normalized = text if preserve_whitespace else " ".join(text.split())
             if not normalized:
                 return
             if observation_count >= MAX_OBSERVATIONS:
@@ -296,7 +296,7 @@ class SuppliedMaterialDigester:
                             )
                             category = "json_value"
                             children = []
-                        emit(description, evidence, None, category, pointer)
+                        emit(description, evidence, None, category, pointer, preserve_whitespace=True)
 
                         available = max(0, MAX_JSON_RECORDS - json_record_count - len(pending))
                         if len(children) > available:

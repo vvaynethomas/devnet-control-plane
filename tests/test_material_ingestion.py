@@ -131,7 +131,7 @@ class TestMaterialIngestion(unittest.TestCase):
         self.assertEqual(caught, [])
 
     def test_json_nested_values_structure_repetition_provenance_and_determinism(self) -> None:
-        text = '{"nested":{"items":[{"value":"repeat"},{"value":"repeat"}]},"number":7,"null":null,"flag":true,"empty":[],"a/b~c":"escaped"}'
+        text = '{"nested":{"items":[{"value":"repeat"},{"value":"repeat"}]},"number":7,"null":null,"flag":true,"empty":[],"a/b~c":"escaped","spacing":["a  b","a b","a  b"]}'
         payload = self.payload(text, "json", "input.json")
         payload["target"] = "not-present"
         receipt = self.service.submit(payload)
@@ -140,7 +140,7 @@ class TestMaterialIngestion(unittest.TestCase):
         digester = SuppliedMaterialDigester(text.encode(), "input.json", "json")
         self.assertEqual(digester.digest(reference).to_dict(), digester.digest(reference).to_dict())
         self.assertEqual(digest["material"]["revision"], hashlib.sha256(text.encode()).hexdigest())
-        self.assertEqual(digest["coverage"]["json_records"], 12)
+        self.assertEqual(digest["coverage"]["json_records"], 16)
         self.assertEqual(digest["file_evidence"][0]["sha256"], hashlib.sha256(text.encode()).hexdigest())
         self.assertEqual(digest["file_evidence"][0]["path"], "input.json")
         groups = digest["residue"]["items"]
@@ -148,6 +148,13 @@ class TestMaterialIngestion(unittest.TestCase):
         self.assertEqual(repeated["count"], 2)
         self.assertEqual([ref["json_pointer"] for ref in repeated["evidence"]],
                          ["/nested/items/0/value", "/nested/items/1/value"])
+        repeated_spacing = next(group for group in groups if group["observation"] == '"a  b"')
+        single_spacing = next(group for group in groups if group["observation"] == '"a b"')
+        self.assertEqual(repeated_spacing["count"], 2)
+        self.assertEqual([ref["json_pointer"] for ref in repeated_spacing["evidence"]],
+                         ["/spacing/0", "/spacing/2"])
+        self.assertEqual(single_spacing["count"], 1)
+        self.assertNotEqual(repeated_spacing["observation_sha256"], single_spacing["observation_sha256"])
         self.assertTrue(all(not group["target_match"] for group in groups))
         pointers = {
             ref.get("json_pointer")

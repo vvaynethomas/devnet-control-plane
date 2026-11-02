@@ -98,11 +98,13 @@ references. Repeated items retain distinct line IDs; frequency is not waste,
 independence, corroboration or trust. Distinct long observations are not merged
 because truncated display prefixes happen to match. Output truncation and
 unparsed/unsupported regions are visible as counts and bounded gap references.
-JSON scalar observations use compact JSON value notation; object/array
-observations state their type and member/item count, while each child is
-independently observed at its JSON Pointer. JSON evidence does not claim exact
-source line offsets. Repeated canonical scalar values share residue groups with
-distinct pointer references; untargeted observations remain present.
+JSON scalar observations use compact JSON value notation and preserve string
+whitespace exactly; object/array observations state their type and member/item
+count, while each child is independently observed at its JSON Pointer. JSON
+evidence does not claim exact source line offsets. Identical encoded scalar
+values share residue groups with distinct pointer references; distinct string
+values are not merged merely because their words differ only in whitespace.
+Untargeted observations remain present.
 
 ## Hard limits and refusals
 
