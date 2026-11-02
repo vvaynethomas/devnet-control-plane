@@ -30,8 +30,10 @@ Before declaring v0.1.0 delivered, resolve DNCP-001 packaging/CLI blockers and c
   - Claude & Perplexity web exports.
 - **Historical watcher target, transferring to PRJ-0006 ACH-005:** narrow local
   refresh after the intake/adapter contract; no watcher is delivered in DNCP.
-- **DNCP-015 consumer proposal:** consume the standalone product's local
-  normalized conversation/provenance contract, not duplicate its collectors.
+- **DNCP-015 consumer integration:** the first explicit-path CLI reader consumes
+  the standalone product's pinned v1 local conversation/provenance contract,
+  without collection or persistence. Original-source freshness is unknown;
+  broader Fabric/Conversations/Handoff wiring and contract acceptance remain open.
 - **Zero-Touch Local AI Gateway:** OpenAI-compatible loopback proxy (`http://localhost:8781/v1/chat/completions`) routing Gemini API, Anthropic, Perplexity, and OpenAI calls with automated stream logging and token counting.
 
 ## v0.3.0 — The Metabolizer & Epistemic Context Mesh (Planned)
@@ -88,6 +90,13 @@ item runs phone-home before design/code. Preserve existing DNCP P1/dependency
 history, leave new ACH priorities unassigned, and treat duplicate-queue
 reconciliation as open owner work: these documents do not synchronize queues
 or create another canonical backlog.
+
+The bounded DNCP-015 CLI follow-up now reads the merged producer's local v1
+library independently of the still-unimplemented watcher. It requires an
+explicit, closed library, reports unavailable/incompatible data, and optionally
+refuses stale observation snapshots. This does not approve draft DEC-0016,
+establish original-source freshness, or finish the UI migration. See the
+[consumer boundary](docs/conversation-library-consumer.md).
 
 Parsing is currently duplicated in `fabric.py`, `handoff.py`, and
 `conversations.py`; no migration/refactor occurs here. Universal export parsing,

@@ -20,7 +20,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
 | DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check available library/toolbox sources before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. Intended network library is a graph of released product-owned libraries; current coverage is one incubator plus bounded local Python modules, not graph-wide discovery. | DNCP-002 | P1 | Awaiting acceptance (bounded front-door implementation covered; graph-wide library coverage not implemented; first next-round gate) |
-| DNCP-015 | Consumer-integration proposal only: read PRJ-0006's future local conversation/provenance contract into DNCP Fabric, Conversations and Handoff without duplicating collection. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Proposed (contract and owner reconciliation required; no integration implemented here) |
+| DNCP-015 | Read PRJ-0006's local conversation/provenance contract without duplicating collection; eventual Fabric, Conversations and Handoff integration. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Open (partial; explicit-path read-only CLI consumer of pinned v1 contract; UI wiring, contract approval and owner acceptance remain open) |
 
 ## Evidence and Remaining Acceptance Gates
 
@@ -110,7 +110,7 @@ canonical backlog or evidence that queues are synchronized.
 | First: DNCP-014 | Check/review existing capabilities and provide provisional report intake. |
 | Next: ChatGPT `conversations.json` | PRJ-0006 ACH-004 intake, with ACH-003 local adapters as relevant; run phone-home first. Do not implement in DNCP-005 here. |
 | Then: narrow watcher | PRJ-0006 ACH-005; run phone-home first and use existing adapter/scanner contracts. Do not implement in DNCP-004 here. |
-| DNCP retained scope | DNCP-015 consumer proposal depends on phone-home and a published local PRJ-0006 contract; no new DNCP collector/parser. |
+| DNCP retained scope | DNCP-015's first CLI reader targets the pinned local PRJ-0006 v1 contract after phone-home; no new DNCP collector/parser. Broader UI integration and contract approval remain open. |
 
 Preserve DNCP-004/005's existing P1 and DNCP-003 dependency history. **ACH
 priorities remain unassigned**; DNCP P1 does not assign producer priorities.
@@ -133,8 +133,25 @@ before building: `harvesters\snapshot.py` normalized/raw collector provenance,
 `harvesters\filesystem.py` placeholder/streaming-volume/link guards. The catalog
 does not parse chats; its asset schema and file identity do not resolve chat
 branches/messages. Adopt an appropriate supported interface/shared extraction
-later, not copied collectors or imports from a sibling checkout. None of this
-producer work or the DNCP consumer integration is implemented here.
+later, not copied collectors or imports from a sibling checkout. Producer work
+is not implemented here. The bounded consumer follow-up is recorded below.
+
+### DNCP-015 First Consumer Slice (2026-11-02)
+
+`devnet conversation-library --library <explicit-path>` reads a closed producer
+library against main revision `2673a87a2bef8c6055ed63ee5200aa1cde96ab37`.
+It preserves every normalized observation, opaque identity, revision, copied
+export locator, graph reference, source record, provenance and limitation without
+collection, source-URI traversal or DNCP persistence. Version/shape mismatch,
+missing/corrupt/busy libraries and bounds fail explicitly. An optional expected
+snapshot digest detects changed/deleted observations; original-source freshness
+is explicitly unknown, never inferred from conversation dates.
+
+See [the consumer contract](docs/conversation-library-consumer.md) for privacy,
+limits and synthetic test coverage. Only the CLI/adapter slice is implemented:
+Fabric indexing, Conversations UI, Handoff migration, producer contract approval
+(DEC-0016 remains draft), real-history acceptance and ownership reconciliation
+remain open. No watcher, sync, background scan or automatic handoff is added.
 
 ## Provisional Direction: Repository as the First Digestible Material
 

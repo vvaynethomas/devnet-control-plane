@@ -11,6 +11,7 @@ import sys
 from typing import Any
 
 from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PACKAGE_VERSION
+from .conversation_library import ConversationLibraryError, read_conversation_library
 from .phone_home import MAX_REQUEST_BYTES, PhoneHome, PhoneHomeError
 
 
@@ -25,6 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--host", choices=["127.0.0.1", "localhost"], default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8780)
     commands.add_parser("mcp", help="Optional official-SDK stdio MCP server")
+    library = commands.add_parser(
+        "conversation-library", help="Read an explicitly selected, closed PRJ-0006 library; no collection",
+    )
+    library.add_argument("--library", type=Path, required=True)
+    library.add_argument("--expected-snapshot", help="Reject observations changed since a previous snapshot SHA-256")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -100,6 +106,9 @@ def dispatch(service: PhoneHome, args: argparse.Namespace) -> Any:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "conversation-library":
+            print(json.dumps(read_conversation_library(args.library, args.expected_snapshot), indent=2, ensure_ascii=False))
+            return 0
         if args.command == "digest":
             from .repo_metabolizer import RepositoryMetabolizer
             from .fabric import FabricIndex
@@ -134,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except KeyboardInterrupt:
         return 0
+    except ConversationLibraryError as exc:
+        print(json.dumps({"error": str(exc), "code": exc.code, "status": exc.status}), file=sys.stderr)
+        return 1
     except (OSError, sqlite3.Error, ValueError, TypeError, RuntimeError) as exc:
         print(json.dumps({"error": str(exc), "status": getattr(exc, "status", 503)}), file=sys.stderr)
         return 1
