@@ -4,7 +4,9 @@
 `Digester.digest(MaterialReference, target="") -> Digestion` protocol.
 It extracts provisional evidence only. Registration, explicit invocation,
 inventory comparison, human dispositions and persistence are outside it.
-No other material digester, router or concierge is implemented.
+Explicitly supplied text/Markdown, CSV, HTML, Python and ZIP use
+`SuppliedMaterialDigester` in `control_plane\material_ingestion.py`; see
+[coverage and limits](material-ingestion.md). No router or concierge is implemented.
 
 The repository implementation is `RepositoryDigester` in
 `control_plane\repo_metabolizer.py`. `RepositoryMetabolizer` supplies opt-in
@@ -54,7 +56,7 @@ The destination product owns its library; the incubator is optional.
 
 ## Repository extraction boundaries
 
-Registration validates the root but does not read HEAD/tree/blobs or start a
+Repository-only registration validates the root but does not read HEAD/tree/blobs or start a
 scan. An explicit scan checks opt-in before repository observation, resolves
 `HEAD` or `--revision` once, and reads committed tree/blobs without checkout.
 Dirty/untracked files, hooks, filters, install scripts, dependency resolution,
@@ -83,4 +85,23 @@ Recognized credential-bearing content and sensitive filenames are excluded.
 This is incomplete secret detection, not authorization to share a bundle.
 No full source copies or scan history are retained unless the human explicitly
 redirects JSON to a local review file. No LLM, external extractor, watcher,
-automatic scan, additional digester or phone-home dependency is required.
+automatic scan or phone-home dependency is required for repository digestion.
+
+## Supplied material orchestration
+
+Explicit material requires no repo opt-in, product membership, bilateral
+acceptance or report metadata. One `PhoneHome.submit(kind="material", ...)`
+digests the supplied bytes with the same shared result contract and stores
+bounded evidence in the existing local inbox. The pure digester does not
+instantiate phone-home, compare inventories or persist anything. Material
+revisions are SHA-256 of exact input bytes; original identity and location stay
+input provenance, not canonical identifiers. Residue includes untargeted content
+and repeated observation counts, never automatic waste classification.
+
+The phone-home receipt adds ingestion time, idempotency and content digest plus
+an explicit no-second-acceptance review boundary. Its provisional status is not
+a pending ingest approval; only consequential later execution, adoption or
+canonical promotion requires a human. Raw bytes/base64 are not stored, but bounded
+evidence snippets are. No automatic inventory scan, promotion or external
+transmission is introduced. Repository opt-in continues to gate whole-repo scans
+only; the repository-specific limits above do not apply to supplied material.

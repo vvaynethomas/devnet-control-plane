@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 from pathlib import Path
 import sqlite3
@@ -41,6 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--json", action="store_true", help="JSON is the default output")
     submit = phone.add_parser("submit", help="Append unverified discovery/tooling to the local inbox")
     submit.add_argument("--file", required=True, help="JSON request file, or - for stdin")
+    ingest = phone.add_parser("ingest", help="Digest and ingest explicitly supplied local material in one submission")
+    ingest.add_argument("file", type=Path)
+    ingest.add_argument("--format", choices=("text", "markdown", "csv", "html", "python", "zip"))
+    ingest.add_argument("--identity", default=None, help="Original source identity; defaults to the explicit local path")
+    ingest.add_argument("--target", default="")
+    ingest.add_argument("--source-ref", default="")
+    ingest.add_argument("--source-session", default="")
+    ingest.add_argument("--idempotency-key", default="")
     intake = phone.add_parser("intake").add_subparsers(dest="intake_operation", required=True)
     listing = intake.add_parser("list")
     listing.add_argument("--query", default="")
@@ -53,6 +62,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def dispatch(service: PhoneHome, args: argparse.Namespace) -> Any:
+    if args.operation == "ingest":
+        from .material_ingestion import EXTENSIONS, MAX_INPUT_BYTES
+        with args.file.open("rb") as source:
+            raw = source.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            raise PhoneHomeError("material exceeds 32 KiB", 413)
+        return service.submit({
+            "kind": "material",
+            "material": {"name": args.file.name, "format": args.format or EXTENSIONS.get(args.file.suffix.lower()),
+                         "identity": args.identity if args.identity is not None else str(args.file.absolute()),
+                         "base64": base64.b64encode(raw).decode("ascii")},
+            "target": args.target, "source_ref": args.source_ref, "source_session": args.source_session,
+            "idempotency_key": args.idempotency_key,
+        })
     if args.operation == "check":
         return service.check(args.query, args.limit)
     if args.operation == "submit":

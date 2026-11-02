@@ -18,7 +18,7 @@ from .fabric import FabricIndex, SECRET_RE, collect_knowledge_entities
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESULTS = 50
 KINDS = ("discovery", "tool", "skill", "runbook", "module", "finding", "decision")
-NOTICE = "Provisional, unverified intake; not approval. Only a human can promote records in the incubator."
+NOTICE = "Ingested locally as provisional evidence, not canonical knowledge. No second acceptance; only a human approves consequential execution, adoption or canonical promotion."
 
 
 class PhoneHomeError(ValueError):
@@ -50,6 +50,9 @@ def validate_submission(payload: Any) -> dict[str, Any]:
         raise PhoneHomeError("submission must be a JSON object")
     if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_REQUEST_BYTES:
         raise PhoneHomeError("submission exceeds 64 KiB", 413)
+    if payload.get("kind") == "material":
+        from .material_ingestion import digest_submission
+        return digest_submission(payload)
     allowed = {"schema_version", "kind", "title", "summary", "source_repo", "reuse_query",
                "source_session", "source_ref", "related_refs", "tags", "idempotency_key", "external_evidence"}
     if set(payload) - allowed:
