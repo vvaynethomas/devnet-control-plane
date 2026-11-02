@@ -250,10 +250,12 @@ planned live-state/Metabolizer/handoff server.
 Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, version/help are implemented CLI commands.
 
 **DNCP-015 first consumer slice:** `devnet conversation-library --library
-'C:\Private\ConversationHub\library.sqlite'` explicitly reads a closed producer
+'C:\Private\ConversationHub\library.sqlite'` explicitly reads a producer
 version-1 library without collection or persistence. It prints unredacted
 normalized observations and provenance locally; `--expected-snapshot` rejects
-changed evidence. Original-source freshness remains unknown. See the
+changed evidence. Reads use one read-only SQLite snapshot (including WAL) and
+preserve the producer's import-observation timestamp separately from unknown
+original-source freshness. See the
 [consumer contract and privacy limits](docs/conversation-library-consumer.md).
 Existing Fabric, Conversations and Handoff surfaces are not migrated.
 
