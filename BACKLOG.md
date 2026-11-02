@@ -138,14 +138,22 @@ is not implemented here. The bounded consumer follow-up is recorded below.
 
 ### DNCP-015 First Consumer Slice (2026-11-02)
 
-`devnet conversation-library --library <explicit-path>` reads a closed producer
-library against main revision `2673a87a2bef8c6055ed63ee5200aa1cde96ab37`.
+`devnet conversation-library --library <explicit-path>` reads the producer
+library against main revision `11c362c621727a331a1ecf9ffee40220d8a6d373`.
 It preserves every normalized observation, opaque identity, revision, copied
 export locator, graph reference, source record, provenance and limitation without
 collection, source-URI traversal or DNCP persistence. Version/shape mismatch,
 missing/corrupt/busy libraries and bounds fail explicitly. An optional expected
 snapshot digest detects changed/deleted observations; original-source freshness
 is explicitly unknown, never inferred from conversation dates.
+
+After producer PRJ-0006 PR #39, the reader was aligned to required UTC
+`provenance.observed_at` and its bounded read-only transaction semantics:
+WAL snapshots are consistent during concurrent writes, while busy/locked errors
+are surfaced as safe diagnostics. Unmarked databases remain refused without
+initialization; no migration is attempted. Synthetic cross-repo validation
+against the merged producer API and its three authored adapter fixtures is
+documented in the consumer contract.
 
 See [the consumer contract](docs/conversation-library-consumer.md) for privacy,
 limits and synthetic test coverage. Only the CLI/adapter slice is implemented:

@@ -45,6 +45,7 @@ def fixture(platform: str = "chatgpt", revision: str = "b" * 64) -> dict:
         "provenance": {
             "producer": "synthetic-exporter", "declared_version": "synthetic-1",
             "export_uri": "file:///not-accessed/synthetic.json", "export_sha256": "e" * 64, "pointer": "/0",
+            "observed_at": "2026-11-02T21:00:00.123456Z",
         },
         "source_record": {"mapping": {"structural-node": {"message": None}}, "unparsed": "preserve"},
         "limitations": ["Synthetic fixture; tools and original-source freshness unknown."],
@@ -107,9 +108,12 @@ class ConversationLibraryTests(unittest.TestCase):
         result = read_conversation_library(self.library)
         self.assertCountEqual(result["observations"], records)
         self.assertEqual(result["source_freshness"], "unknown")
+        self.assertEqual(result["observation_time"], "per_observation")
+        self.assertEqual(result["observations"][0]["provenance"]["observed_at"], "2026-11-02T21:00:00.123456Z")
         self.assertEqual(result["snapshot_check"], "not_requested")
-        self.assertIn("not followed", result["diagnostics"][0])
+        self.assertIn("never followed", result["diagnostics"][1])
         self.assertEqual(result["contract"]["schema_version"], 1)
+        self.assertEqual(result["contract"]["producer_revision"], "11c362c621727a331a1ecf9ffee40220d8a6d373")
         self.assertEqual(before, self.library.read_bytes())
         self.assertEqual(list(self.library.parent.iterdir()), [self.library])
 
@@ -117,6 +121,23 @@ class ConversationLibraryTests(unittest.TestCase):
         result = read_conversation_library(self.library)
         self.assertEqual(result["observations"], [])
         self.assertEqual(result["source_freshness"], "unknown")
+        self.assertEqual(result["observation_time"], "per_observation")
+
+    def test_import_observation_timestamp_required_and_utc(self) -> None:
+        self.add(fixture())
+        record = fixture()
+        for value in ("not-a-date", "2026-11-02T21:00:00", "2026-11-02T21:00:00+00:00",
+                      "2026-11-02T22:00:00+01:00", None, 123):
+            with self.subTest(value=value):
+                record["provenance"]["observed_at"] = value
+                with closing(sqlite3.connect(self.library)) as connection, connection:
+                    connection.execute("UPDATE observations SET normalized_json = ?", (json.dumps(record),))
+                self.assert_error("schema_incompatible")
+        record = fixture()
+        del record["provenance"]["observed_at"]
+        with closing(sqlite3.connect(self.library)) as connection, connection:
+            connection.execute("UPDATE observations SET normalized_json = ?", (json.dumps(record),))
+        self.assert_error("schema_incompatible")
 
     def test_stale_snapshot_after_import_or_deletion_no_cache_fallback(self) -> None:
         self.add(fixture())
@@ -266,21 +287,56 @@ class ConversationLibraryTests(unittest.TestCase):
             connection.execute("DELETE FROM exports")
         self.assert_error("schema_incompatible")
 
-    def test_sidecars_wal_and_concurrent_change_refused_without_writes(self) -> None:
-        for suffix in ("-wal", "-shm", "-journal"):
-            sidecar = Path(str(self.library) + suffix)
-            sidecar.write_bytes(b"synthetic busy indicator")
-            self.assert_error("library_busy")
-            sidecar.unlink()
+    def test_wal_read_snapshot_is_consistent_during_concurrent_writer(self) -> None:
+        self.add(fixture())
         with closing(sqlite3.connect(self.library)) as connection:
             connection.execute("PRAGMA journal_mode = WAL")
-        self.assert_error("library_busy")
-        with closing(sqlite3.connect(self.library)) as connection:
-            connection.execute("PRAGMA journal_mode = DELETE")
-        from control_plane.conversation_library import _file_state
-        state = _file_state(self.library)
-        with patch("control_plane.conversation_library._file_state", side_effect=[state, (*state[:4], state[4] + 1)]):
-            self.assert_error("library_changed")
+        from control_plane.conversation_library import _validate_record
+        original_validate = _validate_record
+        inserted = False
+
+        def insert_after_snapshot(raw: str, key: tuple[str, str, str, str]) -> dict:
+            nonlocal inserted
+            result = original_validate(raw, key)
+            if not inserted:
+                inserted = True
+                self.add(fixture(revision="f" * 64))
+            return result
+
+        with patch("control_plane.conversation_library._validate_record", side_effect=insert_after_snapshot):
+            snapshot = read_conversation_library(self.library)
+        self.assertEqual(len(snapshot["observations"]), 1)
+        self.assertEqual(len(read_conversation_library(self.library)["observations"]), 2)
+
+    def test_exclusive_writer_returns_redacted_busy_error(self) -> None:
+        path = self.library.with_name("private-path-secret.sqlite")
+        self.library.replace(path)
+        writer = sqlite3.connect(path, isolation_level=None)
+        writer.execute("BEGIN EXCLUSIVE")
+        try:
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                result = main(["conversation-library", "--library", str(path)])
+            self.assertEqual(result, 1)
+            self.assertEqual(out.getvalue(), "")
+            self.assertEqual(json.loads(err.getvalue())["code"], "library_busy")
+            self.assertNotIn("private-path-secret", err.getvalue())
+            self.assertNotIn(str(path), err.getvalue())
+        finally:
+            writer.rollback()
+            writer.close()
+
+    def test_unmarked_database_is_refused_without_initializing_or_echoing_path(self) -> None:
+        path = self.root / "private-path-secret.sqlite"
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("CREATE TABLE unrelated (secret TEXT)")
+        before = path.read_bytes()
+        with self.assertRaises(ConversationLibraryError) as caught:
+            read_conversation_library(path)
+        self.assertEqual(caught.exception.code, "schema_incompatible")
+        self.assertNotIn(str(path), str(caught.exception))
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(list(self.root.iterdir()), [self.library.parent, path])
 
     def test_cli_no_phone_home_harvest_network_subprocess_or_runtime_storage(self) -> None:
         self.add(fixture())

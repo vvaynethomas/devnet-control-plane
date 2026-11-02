@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8780)
     commands.add_parser("mcp", help="Optional official-SDK stdio MCP server")
     library = commands.add_parser(
-        "conversation-library", help="Read an explicitly selected, closed PRJ-0006 library; no collection",
+        "conversation-library", help="Read an explicitly selected PRJ-0006 snapshot; no collection",
     )
     library.add_argument("--library", type=Path, required=True)
     library.add_argument("--expected-snapshot", help="Reject observations changed since a previous snapshot SHA-256")

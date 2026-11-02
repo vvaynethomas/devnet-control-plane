@@ -12,9 +12,10 @@ import sqlite3
 from typing import Any, NoReturn
 
 
-PRODUCER_REVISION = "2673a87a2bef8c6055ed63ee5200aa1cde96ab37"
+PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
 APPLICATION_ID = 0x41434831
 SCHEMA_VERSION = 1
+READ_BUSY_TIMEOUT_SECONDS = 1.0
 MAX_LIBRARY_BYTES = 32 * 1024 * 1024
 MAX_OBSERVATIONS = 256
 MAX_RECORD_BYTES = 256 * 1024
@@ -76,7 +77,15 @@ def _validate_record(raw: str, key: tuple[str, str, str, str]) -> dict[str, Any]
         _incompatible()
     _texts(source, ("archive_key", "platform", "edition", "session_id"))
     _texts(source, ("source_id", "source_name", "native_session_id"), nullable=True)
-    _texts(provenance, ("producer", "declared_version", "export_uri", "export_sha256", "pointer"))
+    _texts(provenance, ("producer", "declared_version", "export_uri", "export_sha256", "pointer", "observed_at"))
+    if not provenance["observed_at"].endswith("Z"):
+        _incompatible()
+    try:
+        observed_at = datetime.fromisoformat(provenance["observed_at"][:-1] + "+00:00")
+    except ValueError:
+        _incompatible()
+    if observed_at.utcoffset() != timezone.utc.utcoffset(observed_at):
+        _incompatible()
     if not SHA256.fullmatch(provenance["export_sha256"]):
         _incompatible()
     if (record["id"], record["revision"], provenance["export_sha256"], provenance["export_uri"]) != key:
@@ -106,24 +115,12 @@ def _validate_record(raw: str, key: tuple[str, str, str, str]) -> dict[str, Any]
     return record
 
 
-def _file_state(path: Path) -> tuple[int, int, int, int, int]:
-    for suffix in ("-wal", "-shm", "-journal"):
-        if Path(str(path) + suffix).exists():
-            raise ConversationLibraryError(
-                "library_busy", "Close the producer and checkpoint its library before reading; sidecar present.",
-            )
+def _validate_library_file(path: Path) -> None:
     stat = path.stat()
     if not path.is_file():
         raise ConversationLibraryError("unavailable", "Selected conversation library is not a file.", 503)
     if stat.st_size > MAX_LIBRARY_BYTES:
         raise ConversationLibraryError("limit_exceeded", "Library exceeds the 32 MiB consumer limit.", 413)
-    with path.open("rb") as source:
-        header = source.read(20)
-    if header[18:20] == b"\x02\x02":
-        raise ConversationLibraryError(
-            "library_busy", "WAL libraries are unsupported; close and checkpoint with the producer first.",
-        )
-    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
 def read_conversation_library(
@@ -134,21 +131,20 @@ def read_conversation_library(
         raise ConversationLibraryError("invalid_request", "Expected snapshot must be a lowercase SHA-256.", 400)
     try:
         path = library.resolve(strict=True)
-        before = _file_state(path)
-        # Immutable mode prevents SQLite from creating sidecars. Only a quiescent,
-        # rollback-journal library is supported; WAL and changes are refused.
-        with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+        _validate_library_file(path)
+        # One read transaction pins a consistent view across schema and row queries.
+        with closing(sqlite3.connect(
+            path.as_uri() + "?mode=ro", uri=True,
+            timeout=READ_BUSY_TIMEOUT_SECONDS, isolation_level=None,
+        )) as connection:
             connection.execute("PRAGMA query_only = ON")
             connection.execute("PRAGMA trusted_schema = OFF")
             connection.set_progress_handler(lambda: 1, 1_000_000)
+            connection.execute("BEGIN")
             if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
                 _incompatible()
             if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
                 _incompatible()
-            if connection.execute("PRAGMA journal_mode").fetchone()[0] != "delete":
-                raise ConversationLibraryError(
-                    "library_busy", "Only a closed rollback-journal library is supported.",
-                )
             for table, columns in {
                 "exports": ["sha256", "raw"],
                 "revisions": ["conversation_id", "revision"],
@@ -186,17 +182,24 @@ def read_conversation_library(
                 if row[6:] != (1, 1):
                     _incompatible()
                 observations.append(_validate_record(row[5], row[:4]))
-        if before != _file_state(path):
-            raise ConversationLibraryError("library_changed", "Library changed during read; retry with producer closed.")
         observations.sort(key=lambda item: (
             item["id"], item["revision"], item["provenance"]["export_sha256"], item["provenance"]["export_uri"],
         ))
         snapshot = _digest(observations)
     except ConversationLibraryError:
         raise
-    except (OSError, sqlite3.Error):
+    except sqlite3.Error as exc:
+        error_name = getattr(exc, "sqlite_errorname", "") or ""
+        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+            raise ConversationLibraryError(
+                "library_busy", "Library is busy or locked; retry after current access ends.", 503,
+            ) from None
         raise ConversationLibraryError(
-            "unavailable", "Selected library is unavailable, unreadable, corrupt, or exceeded the query budget.", 503,
+            "unavailable", "Selected library is unavailable, corrupt, or exceeded the query budget.", 503,
+        ) from None
+    except OSError:
+        raise ConversationLibraryError(
+            "unavailable", "Selected library is unavailable, unreadable, or exceeds the size limit.", 503,
         ) from None
     except (ValueError, TypeError, RecursionError):
         _incompatible()
@@ -211,9 +214,11 @@ def read_conversation_library(
         "read_at": datetime.now(timezone.utc).isoformat(),
         "snapshot_sha256": snapshot,
         "snapshot_check": "matches" if expected_snapshot is not None else "not_requested",
+        "observation_time": "per_observation",
         "source_freshness": "unknown",
         "diagnostics": [
-            "Imported snapshots do not establish original-source availability or freshness; export URIs are not followed.",
+            "observed_at records when the producer imported this export; it is not original-source freshness or availability.",
+            "Export URIs are literal evidence and are never followed.",
             "All observations and revisions are retained; none is selected as current or merged across sources.",
             "Draft producer boundary; synthetic compatibility is not real-history or product acceptance.",
         ],
