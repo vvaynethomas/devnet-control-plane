@@ -49,8 +49,11 @@ def _session_from_conversation(
     source_kind: str,
     *,
     max_messages: int | None = None,
+    content_limit: int | None = None,
 ) -> dict[str, Any]:
-    view = api.conversation_view(conversation)
+    view = api.conversation_view(
+        conversation, content_limit=content_limit, strip_content=source_kind == "copilot-cli",
+    )
     metadata = view.metadata
     source_id = conversation.source.session_id
     source_record = conversation.source_record
@@ -224,6 +227,8 @@ def read_local_sessions(
     max_sessions: int | None = None,
     selection_policy: str | None = None,
     max_messages: int | None = None,
+    physical_line_limit: int | None = None,
+    content_limit: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, str | None]]:
     api, info = _configured_hub_api()
     reader_name, default_limit, _, _, _ = _SOURCE_READERS[source_kind]
@@ -233,18 +238,27 @@ def read_local_sessions(
         return [], [], info
     options: dict[str, Any] = {
         "archive_key": archive_key, "max_sessions": limit, "malformed_sources": "skip-file",
+        "utf8_errors": "replace",
     }
     if source_kind == "antigravity" and selection_policy is not None:
         options["selection_policy"] = selection_policy
+    if source_kind == "copilot-cli":
+        options["physical_line_limit"] = physical_line_limit
+        options["timestamp_policy"] = "legacy-string"
     result = reader(root, **options)
     conversations = [conversation for batch in result.batches for conversation in batch.conversations]
     sessions = [
-        _session_from_conversation(conversation, api, source_kind, max_messages=max_messages)
+        _session_from_conversation(
+            conversation, api, source_kind, max_messages=max_messages, content_limit=content_limit,
+        )
         for conversation in conversations
     ]
     if source_kind == "copilot-cli" and max_messages is not None:
         sessions = [session for session in sessions if session["messages"]]
     diagnostics = list(result.limitations)
+    diagnostics.extend(
+        limitation for conversation in conversations for limitation in conversation.limitations
+    )
     if max_messages is not None and source_kind == "copilot-cli":
         diagnostics.append(
             f"copilot-cli: display limited to the first {max_messages} qualifying messages per selected source; "
@@ -269,7 +283,7 @@ def read_antigravity_transcript(
     api, _ = _configured_hub_api()
     batch = api.read_antigravity_transcript(
         transcript_path, archive_key=archive_key, session_id=session_id,
-        malformed_lines="skip-line",
+        malformed_lines="skip-line", utf8_errors="replace",
     )
     conversation = batch.conversations[0]
     return _session_from_conversation(conversation, api, "antigravity"), list(conversation.limitations)

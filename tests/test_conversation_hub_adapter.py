@@ -426,7 +426,7 @@ class ConversationHubAdapterTests(unittest.TestCase):
         lines.extend(["\n"] * 18)
         lines.append(json.dumps({"message": "line120 Fabric boundary synthetic event"}) + "\n")
         lines.append("{malformed beyond both physical windows}\n")
-        (self.cli_root / "session-b" / "events.jsonl").write_text("".join(lines), encoding="utf-8")
+        (self.cli_root / "session-b" / "events.jsonl").write_bytes("".join(lines).encode("utf-8"))
 
     def test_cli_manager_string_eligibility_differs_from_fabric_without_raw_leaks(self) -> None:
         try:
@@ -489,6 +489,40 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertIn("line120", fabric[0]["body"])
         self.assertNotIn("malformed", fabric[0]["body"])
 
+    def test_hub_cli_physical_windows_preserve_blank_slots_and_outside_errors(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for physical windows")
+            raise
+        for newline in ("\n", "\r\n", "\r"):
+            self._write_cli_physical_window_fixture()
+            path = self.cli_root / "session-b" / "events.jsonl"
+            path.write_bytes(path.read_bytes().replace(b"\n", newline.encode("ascii")))
+            before = path.read_bytes()
+            hub = UnifiedConversationHub(data_dir=self.root / "window-hub")
+            sessions = hub.scan_copilot_cli(self.cli_root)
+            visible = json.dumps(sessions)
+            self.assertIn("line099", visible)
+            self.assertIn("line100", visible)
+            self.assertNotIn("line101", visible)
+            self.assertNotIn("line120", visible)
+            self.assertTrue(any("physical" in note.lower() for note in hub._source_diagnostics))
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                fabric = _harvest_copilot_sessions()
+            self.assertIn("line101", fabric[0]["body"])
+            self.assertIn("line120", fabric[0]["body"])
+            self.assertNotIn("malformed", fabric[0]["body"])
+            self.assertEqual(path.read_bytes(), before)
+            source_globals = api.read_copilot_cli_sessions.__globals__
+            with patch.dict(source_globals, {"MAX_EVENTS_PER_SESSION": 51}):
+                with self.assertRaises(ValueError):
+                    api.read_copilot_cli_sessions(
+                        self.cli_root, archive_key="window-resource", physical_line_limit=100,
+                        utf8_errors="replace", timestamp_policy="legacy-string",
+                    )
+
     def _write_invalid_utf8_source_fixtures(self) -> Path:
         transcript = self.session_dir / ".system_generated" / "logs" / "transcript.jsonl"
         transcript.write_bytes(
@@ -530,6 +564,68 @@ class ConversationHubAdapterTests(unittest.TestCase):
                 self.assertIn("\ufffd", records[0]["body"])
                 self.assertNotIn("beyond both windows", records[0]["body"])
 
+    def test_hub_replacement_decoding_preserves_content_and_reports_outside_bytes(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for replacement decoding")
+            raise
+        transcript = self._write_invalid_utf8_source_fixtures()
+        before = transcript.read_bytes()
+        hub = UnifiedConversationHub(data_dir=self.root / "replace-hub")
+        for sessions in (
+            hub.scan_antigravity(self.brain_root),
+            hub.scan_vscode_copilot(self.vscode_root),
+            hub.scan_copilot_cli(self.cli_root),
+        ):
+            self.assertEqual(len(sessions), 1)
+            self.assertIn("\ufffd", json.dumps(sessions, ensure_ascii=False))
+            self.assertNotIn("beyond both windows", json.dumps(sessions))
+        with self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+            turns = parse_session_turns(transcript)
+        self.assertIn("\ufffd", turns[0]["user_prompt"])
+        self.assertTrue(any("UTF-8" in note for note in captured.output))
+        self.assertEqual(transcript.read_bytes(), before)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            for records in (_harvest_antigravity_sessions(), _harvest_copilot_sessions()):
+                self.assertEqual(len(records), 1)
+                self.assertIn("\ufffd", records[0]["body"])
+                self.assertNotIn("beyond both windows", records[0]["body"])
+        with self.assertRaises(ValueError):
+            api.read_copilot_cli_sessions(self.cli_root, archive_key="strict-utf8", physical_line_limit=100)
+        result = api.read_copilot_cli_sessions(
+            self.cli_root, archive_key="replace-evidence", physical_line_limit=100,
+            utf8_errors="replace", timestamp_policy="legacy-string",
+        )
+        evidence = result.batches[0].conversations[0].source_record["utf8_decoding"]
+        self.assertEqual(evidence["replacement_count"], 2)
+
+    def test_hub_fabric_redaction_keeps_original_prefix_and_masks_crossing_token(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for source-prefix redaction")
+            raise
+        secret = "ghp_" + "S" * 80
+        cases = [
+            "start " + secret + " " + "x" * 800 + " postboundaryneedle",
+            "x" * 790 + " " + secret + " postboundaryneedle",
+        ]
+        for text in cases:
+            (self.cli_root / "session-b" / "events.jsonl").write_text(
+                json.dumps({"message": text}) + "\n", encoding="utf-8",
+            )
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                body = _harvest_copilot_sessions()[0]["body"]
+            self.assertNotIn("postboundaryneedle", body)
+            self.assertNotIn(secret, body)
+            self.assertNotIn("ghp_", body)
+            self.assertIn("[REDACTED_SECRET]", body)
+            if text.startswith("start"):
+                self.assertEqual(body, "start [REDACTED_SECRET]" + text[len("start ") + len(secret):800])
+
     def test_no_hub_cli_timestamps_preserve_first_truthy_value_display(self) -> None:
         path = self.cli_root / "session-b" / "events.jsonl"
         for first, later in (
@@ -551,6 +647,30 @@ class ConversationHubAdapterTests(unittest.TestCase):
                      patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
                     fabric = _harvest_copilot_sessions()
                 self.assertEqual(fabric[0]["created_date"], str(first)[:19])
+
+    def test_hub_cli_timestamp_compatibility_preserves_first_truthy_display(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for timestamp compatibility")
+            raise
+        path = self.cli_root / "session-b" / "events.jsonl"
+        for first, later in (
+            (1735725600000, "2025-01-01T11:00:00Z"),
+            ("2025-01-01T11:00:00Z", 1735725600000),
+            ({"synthetic": "timestamp"}, 42),
+        ):
+            path.write_text("\n".join(json.dumps(event) for event in (
+                {"timestamp": first, "message": "synthetic timestamp prompt"},
+                {"timestamp": later, "message": "synthetic timestamp answer"},
+            )) + "\n", encoding="utf-8")
+            hub = UnifiedConversationHub(data_dir=self.root / "timestamp-hub")
+            self.assertEqual(hub.scan_copilot_cli(self.cli_root)[0]["created_date"], str(first)[:19])
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                self.assertEqual(_harvest_copilot_sessions()[0]["created_date"], str(first)[:19])
+            with self.assertRaises(ValueError):
+                api.read_copilot_cli_sessions(self.cli_root, archive_key="strict-timestamp")
 
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
@@ -1087,8 +1207,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.5",
-                "revision": "cd66bd37ebad82c28465270a915415df1aacec3e",
+                "version": "0.1.6",
+                "revision": "ea8d608b00aa1900132b2d2f33d90561143fa471",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -1098,8 +1218,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.5", rendered)
-        self.assertIn("cd66bd37ebad82c28465270a915415df1aacec3e", rendered)
+        self.assertIn("conversation-hub 0.1.6", rendered)
+        self.assertIn("ea8d608b00aa1900132b2d2f33d90561143fa471", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)

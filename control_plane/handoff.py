@@ -67,7 +67,7 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.5 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
         )
         adapted = None
         diagnostics = []
@@ -172,7 +172,7 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity parser. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.5 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
         )
         selected = None
         diagnostics = []

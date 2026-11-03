@@ -19,8 +19,8 @@ from uuid import uuid4
 
 
 PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
-HUB_READER_REVISION = "cd66bd37ebad82c28465270a915415df1aacec3e"
-HUB_READER_VERSION = "0.1.5"
+HUB_READER_REVISION = "ea8d608b00aa1900132b2d2f33d90561143fa471"
+HUB_READER_VERSION = "0.1.6"
 HUB_READER_URL = "https://github.com/vvaynethomas/conversation-hub.git"
 APPLICATION_ID = 0x41434831
 SCHEMA_VERSION = 1
@@ -172,7 +172,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     ):
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub does not match the pinned v0.1.5 commit. "
+            "Installed Conversation Hub does not match the pinned v0.1.6 commit. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
