@@ -191,8 +191,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.1",
-                "revision": "186fcae50f030ff72909326db1e3b5b79ff7869c",
+                "version": "0.1.2",
+                "revision": "381644edec4c948375bc6f24b695bbba7b699e7a",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -202,8 +202,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.1", rendered)
-        self.assertIn("186fcae50f030ff72909326db1e3b5b79ff7869c", rendered)
+        self.assertIn("conversation-hub 0.1.2", rendered)
+        self.assertIn("381644edec4c948375bc6f24b695bbba7b699e7a", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)
