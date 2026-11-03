@@ -82,6 +82,7 @@ class UnifiedConversationHub:
         max_sessions: int | None = None,
         *,
         selection_policy: str | None = None,
+        max_messages: int | None = None,
     ) -> list[dict[str, Any]] | None:
         if self._get_hub_api() is None:
             return None
@@ -91,6 +92,7 @@ class UnifiedConversationHub:
                 archive_key=f"dncp-local-{source_kind}",
                 max_sessions=max_sessions,
                 selection_policy=selection_policy,
+                max_messages=max_messages,
             )
             self._source_diagnostics.extend(diagnostics)
             return sessions
@@ -323,7 +325,7 @@ class UnifiedConversationHub:
     def scan_copilot_cli(self, session_state_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local GitHub Copilot CLI event streams."""
         root = session_state_root or (Path(os.path.expanduser("~")) / ".copilot" / "session-state")
-        selected = self._read_local_sessions("copilot-cli", root, max_sessions=500)
+        selected = self._read_local_sessions("copilot-cli", root, max_sessions=500, max_messages=10)
         if selected is not None:
             return selected
         if not root.is_dir():

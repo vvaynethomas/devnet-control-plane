@@ -286,9 +286,13 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
             logger.warning("Copilot CLI source adapter: %s", item)
         for session in sessions:
             snippets = [message["content"] for message in session["messages"]]
-            snippets = [text for text in snippets if isinstance(text, str) and len(text.strip()) > 15]
+            snippets = [text.strip()[:800] for text in snippets if isinstance(text, str) and len(text.strip()) > 15]
             if not snippets:
                 continue
+            logger.warning(
+                "Copilot CLI Fabric excerpts limited to 12 qualifying messages and 800 characters per message; "
+                "later or longer content is not indexed."
+            )
             combined = "\n\n".join(snippets[:12])
             mentioned = sorted(set(match.group(0) for match in ID_RE.finditer(combined)))
             records.append({

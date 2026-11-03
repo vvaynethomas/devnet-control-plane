@@ -47,6 +47,8 @@ def _session_from_conversation(
     conversation: Any,
     api: ConversationHubAPI,
     source_kind: str,
+    *,
+    max_messages: int | None = None,
 ) -> dict[str, Any]:
     view = api.conversation_view(conversation)
     metadata = view.metadata
@@ -54,6 +56,17 @@ def _session_from_conversation(
     source_record = conversation.source_record
     unassigned_messages: list[dict[str, str]] = []
     unclassified_tokens = 0
+    messages = view.messages
+    if source_kind == "copilot-cli" and max_messages is not None:
+        messages = tuple(message for message in messages if len(message.content.strip()) > 15)[:max_messages]
+    selected_ids = {message.id for message in messages}
+
+    def selected(items: Any) -> list[Any]:
+        return [message for message in items if message.id in selected_ids]
+
+    def content(message: Any) -> str:
+        return message.content.strip() if source_kind == "copilot-cli" else message.content
+
     if source_kind == "legacy":
         session_id = source_id
         platform = conversation.source.platform
@@ -77,39 +90,41 @@ def _session_from_conversation(
         _, _, prefix, platform, fallback_model = _SOURCE_READERS[source_kind]
         turns = []
         for turn in view.turns:
+            if not selected(turn.messages):
+                continue
             turns.append({
                 "turn_index": turn.index,
                 "timestamp": turn.timestamp or "",
-                "user_message_count": len(turn.user_messages),
-                "user_prompt": "\n\n".join(message.content for message in turn.user_messages),
-                "assistant_responses": [message.content for message in turn.assistant_messages],
+                "user_message_count": len(selected(turn.user_messages)),
+                "user_prompt": "\n\n".join(content(message) for message in selected(turn.user_messages)),
+                "assistant_responses": [content(message) for message in selected(turn.assistant_messages)],
                 "other_messages": [
                     {
                         "role": message.role,
                         "source_role": message.source_role,
-                        "content": message.content,
+                        "content": content(message),
                     }
-                    for message in turn.other_messages
+                    for message in selected(turn.other_messages)
                 ],
                 "tool_calls": list(turn.tool_calls),
                 "messages": [
-                    {"role": message.role, "source_role": message.source_role, "content": message.content}
-                    for message in turn.messages
+                    {"role": message.role, "source_role": message.source_role, "content": content(message)}
+                    for message in selected(turn.messages)
                 ],
             })
         unassigned_messages = [
             {
                 "role": message.role,
                 "source_role": message.source_role,
-                "content": message.content,
+                "content": content(message),
             }
-            for message in view.unassigned_messages
+            for message in selected(view.unassigned_messages)
         ]
         title = metadata.title or next(
             (turn["user_prompt"].replace("\n", " ")[:90] for turn in turns if turn["user_prompt"]),
             next(
-                (message.content.replace("\n", " ")[:90]
-                 for message in view.messages if len(message.content.strip()) > 15),
+                (content(message).replace("\n", " ")[:90]
+                 for message in messages if len(message.content.strip()) > 15),
                 f"Session {source_id[:8]}",
             ) if source_kind == "copilot-cli" else f"Session {source_id[:8]}",
         )
@@ -125,15 +140,15 @@ def _session_from_conversation(
         )
         input_tokens += sum(
             estimate_tokens(message.content)
-            for message in view.unassigned_messages if message.role == "user"
+            for message in selected(view.unassigned_messages) if message.role == "user"
         )
         output_tokens += sum(
             estimate_tokens(message.content)
-            for message in view.unassigned_messages if message.role == "assistant"
+            for message in selected(view.unassigned_messages) if message.role == "assistant"
         )
         unclassified_tokens = sum(
             estimate_tokens(message.content)
-            for message in view.messages if message.role not in {"user", "assistant"}
+            for message in messages if message.role not in {"user", "assistant"}
         )
         turn_count = len(turns)
         source_uri = source_record.get("source_path") or conversation.provenance.export_uri
@@ -163,8 +178,8 @@ def _session_from_conversation(
             "source_uri": source_uri,
             "est_unclassified_tokens": unclassified_tokens,
             "messages": [
-                {"role": message.role, "source_role": message.source_role, "content": message.content}
-                for message in view.messages
+                {"role": message.role, "source_role": message.source_role, "content": content(message)}
+                for message in messages
             ],
         } if source_kind != "legacy" else {}),
     }
@@ -177,6 +192,7 @@ def read_local_sessions(
     archive_key: str,
     max_sessions: int | None = None,
     selection_policy: str | None = None,
+    max_messages: int | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, str | None]]:
     api, info = _configured_hub_api()
     reader_name, default_limit, _, _, _ = _SOURCE_READERS[source_kind]
@@ -192,10 +208,17 @@ def read_local_sessions(
     result = reader(root, **options)
     conversations = [conversation for batch in result.batches for conversation in batch.conversations]
     sessions = [
-        _session_from_conversation(conversation, api, source_kind)
+        _session_from_conversation(conversation, api, source_kind, max_messages=max_messages)
         for conversation in conversations
     ]
+    if source_kind == "copilot-cli" and max_messages is not None:
+        sessions = [session for session in sessions if session["messages"]]
     diagnostics = list(result.limitations)
+    if max_messages is not None and source_kind == "copilot-cli":
+        diagnostics.append(
+            f"copilot-cli: display limited to the first {max_messages} qualifying messages per selected source; "
+            "later messages excluded from presentation and search."
+        )
     diagnostics.extend(result.skipped_inputs)
     if result.skipped_count:
         diagnostics.append(

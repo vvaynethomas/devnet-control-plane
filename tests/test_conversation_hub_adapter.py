@@ -329,6 +329,36 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertIn(f"0 in / 0 out / {expected} unclassified; no input/output role", rendered)
         self.assertNotIn(synthetic_secret, rendered)
 
+    def test_cli_qualifying_message_and_fabric_excerpt_bounds(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for snippet bounds")
+            raise
+        path = self.cli_root / "session-b" / "events.jsonl"
+        events = [{"message": "short"}, {"event": "unsupported"}]
+        qualifying = []
+        for index in range(15):
+            text = f"snippet-{index:02d} " + "x" * 820 + f" beyond800-{index:02d}"
+            qualifying.append(text)
+            events.append({"role": ("user", "tool", "assistant")[index % 3], "message": f"  {text}  "})
+        path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+        hub = UnifiedConversationHub(data_dir=self.root / "snippet-data")
+        sessions = hub.scan_copilot_cli(self.cli_root)
+        self.assertEqual([message["content"] for message in sessions[0]["messages"]], qualifying[:10])
+        self.assertNotIn("snippet-10", json.dumps(sessions))
+        self.assertEqual([message["role"] for message in sessions[0]["messages"]],
+                         [("user", "tool", "assistant")[index % 3] for index in range(10)])
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+             self.assertLogs("control_plane.fabric", level="WARNING") as captured:
+            fabric = _harvest_copilot_sessions()
+        self.assertEqual(fabric[0]["body"], "\n\n".join(text[:800] for text in qualifying[:12]))
+        self.assertNotIn("beyond800", fabric[0]["body"])
+        self.assertNotIn("snippet-12", fabric[0]["body"])
+        self.assertTrue(any("800 characters per message" in note for note in captured.output))
+        self.assertTrue(any("qualifying messages" in note for note in hub._source_diagnostics))
+
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
             _configured_hub_api()
