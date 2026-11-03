@@ -71,7 +71,7 @@ class UnifiedConversationHub:
             self._hub_info = {"implementation": "dncp-legacy-adapter", "version": None, "revision": None}
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the preview producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 producer adapters."
             )
         return self._hub_api
 
@@ -162,7 +162,7 @@ class UnifiedConversationHub:
         brain_root = brain_root or (Path(os.path.expanduser("~")) / ".gemini" / "antigravity" / "brain")
         if self._get_hub_api() is not None:
             self._source_diagnostics.append(
-                "Antigravity remains on DNCP's legacy reader: the preview Hub caps supported transcript files, "
+                "Antigravity remains on DNCP's legacy reader: Hub v0.1.2 caps supported transcript files, "
                 "while DNCP historically capped session directories before checking for transcripts."
             )
         sessions = []
@@ -424,7 +424,7 @@ class UnifiedConversationHub:
         if self._get_hub_api() is None and not self._source_diagnostics:
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the preview producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 producer adapters."
             )
         all_sessions = (
             self.scan_antigravity() +

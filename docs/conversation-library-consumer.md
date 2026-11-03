@@ -5,7 +5,9 @@ existing VS Code Copilot, Copilot CLI, and legacy imported-chat conversation
 surfaces, and for Copilot CLI Fabric indexing. Antigravity remains on DNCP's
 legacy reader until the producer can preserve its existing directory-first cap
 semantics. DNCP can also read an **explicitly selected** PRJ-0006 local evidence
-library. This is an untagged development integration, not complete product
+library. This is an unaccepted development integration. The selected Hub
+dependency is a private, untrusted prerelease; its
+verified component bytes do not imply behavioral qualification or product
 acceptance.
 
 ## Verified boundary
@@ -29,12 +31,15 @@ which merged PRJ-0006's explicit local reader contract:
   initialization. DEC-0016 and ART-0008/0009/0010 remain draft evidence, not product
   acceptance or an approved long-term UI contract.
 
-The standalone `conversation-hub` package is pinned as an **optional development
-dependency** at untagged preview commit
-`186fcae50f030ff72909326db1e3b5b79ff7869c` on `component-source-adapters`.
-This is not a release pin; replace it with the producer's verified immutable
-release commit before treating the dependency as release-ready. Install this
-private extra with Python 3.12+ and repository access:
+The standalone `conversation-hub` package is pinned as an **optional dependency**
+to the immutable v0.1.2 prerelease commit
+[`381644edec4c948375bc6f24b695bbba7b699e7a`](https://github.com/vvaynethomas/conversation-hub/commit/381644edec4c948375bc6f24b695bbba7b699e7a).
+The published wheel
+`conversation_hub-0.1.2-py3-none-any.whl` was independently checked at
+SHA-256 `537dd2fc8f792742d64fd6377b3fa706af8fb2d8f2af7b491dbe5a82a30237c1`.
+It remains a private, untrusted prerelease: its release metadata explicitly says
+`trusted: false`, `ready_for_human_release_decision: false`, and evaluation is
+not complete. Install this private extra with Python 3.12+ and repository access:
 
 ```powershell
 python -m pip install '.[conversation-hub]'
@@ -52,7 +57,7 @@ unrelated features continue working on 3.10/3.11. The
 with installation guidance if it is absent; it does not silently use a DNCP
 fallback reader.
 
-When installed, the consumer opens the library through the exact development
+When installed, the consumer opens the library through the exact pinned
 commit's `conversation_hub.library.read_snapshot(Path)` API, which provides a
 validated read-only connection inside a transaction. DNCP keeps additional
 bounded record and schema checks for its output contract. At runtime, DNCP
@@ -134,7 +139,7 @@ stderr, and emit no partial stdout or imported content:
 | Code | Meaning |
 | :--- | :--- |
 | `hub_unavailable` | Optional private Conversation Hub extra is not installed. Install `devnet-control-plane[conversation-hub]` with Python 3.12+ and repository access. No local reader fallback is used. |
-| `hub_incompatible` | Installed extra is not v0.1.1 at the configured full commit or lacks a required library/source/view API. Reinstall the optional extra. |
+| `hub_incompatible` | Installed extra is not v0.1.2 at the configured full commit or lacks a required library/source/view API. Reinstall the optional extra. |
 | `invalid_request` | Malformed expected SHA-256. |
 | `unavailable` | Selected file missing, unreadable, corrupt, or query budget exceeded. No database is created. |
 | `schema_incompatible` | Unmarked, unsupported application/schema/record shape, inconsistent observation identity/provenance, or missing revision/export reference. No migration attempted. |
@@ -162,7 +167,10 @@ covers optional-package fallback, exact-distribution loading, source diagnostics
 Fabric/handoff projections, UI diagnostic escaping, stale/unavailable/schema
 errors, bounded reads, and concurrent WAL snapshot behavior. The same tests pass
 without the optional package (with its package-integration cases skipped) and
-with the exact preview installed into a temporary target directory. No real
+with exact commit `381644edec4c948375bc6f24b695bbba7b699e7a` installed into a
+temporary target directory. The downloaded release wheel hash matched the
+published digest; the integration test exercises the VCS-commit install so its
+PEP 610 metadata matches the pin. No real
 conversation directories or histories were read. Validation ran on Python 3.14;
 Python 3.10 and 3.11 were not available, so those versions remain unverified.
 
@@ -182,18 +190,18 @@ evidence, not validation of the new observation timestamp or snapshot API.
 
 ## Remaining release and acceptance gates
 
-The preview source APIs provide explicit-root Antigravity, VS Code Copilot,
+The v0.1.2 prerelease source APIs provide explicit-root Antigravity, VS Code Copilot,
 Copilot CLI, legacy imported-chat reads, conversation reads, and redacted views.
 Synthetic tests exercise all four producer readers and the migrated consumer
 surfaces without opening a real history. Remaining boundaries are:
 
 | Area | Remaining gate |
 | :--- | :--- |
-| Dependency pin | Replace untagged `186fcae…` with the corrected, verified immutable Hub release commit and retest its installed distribution before release. Python >=3.12 remains a Hub-extra requirement; DNCP base Python >=3.10 support remains optional and unverified on 3.10/3.11 in this environment. |
+| Dependency pin | v0.1.2 is an immutable prerelease pin, but is private and explicitly untrusted/not ready for a human release decision; promotion and product qualification remain open. Python >=3.12 remains a Hub-extra requirement; DNCP base Python >=3.10 support remains optional and unverified on 3.10/3.11 in this environment. |
 | Antigravity selection | Add a producer API that accepts DNCP's already-selected session directories/transcript paths, or otherwise preserves DNCP's directory-first cap semantics. Until then conversation, Fabric, and handoff deliberately retain DNCP's parser for this source. |
-| Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: the preview offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
+| Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: v0.1.2 offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
 | Fabric / UI semantics | Fabric indexing and the existing UI remain DNCP responsibilities. Token estimates remain DNCP heuristics, not Hub metrics. Producer limits and unversioned-source limitations are exposed through diagnostics; this is not complete history or identity reconciliation. |
-| Handoff | Hub now supplies the selected Antigravity content and redacted turn view; DNCP retains the existing handoff Markdown format and selection UI. No automatic handoff or transmission is added. |
+| Handoff | Antigravity selection and parsing remain DNCP-owned until the producer supplies a directory-first compatibility API. DNCP retains its existing handoff Markdown format and selection UI. No automatic handoff or transmission is added. |
 | Product acceptance | Real-history authorization, cross-source identity reconciliation, source-freshness evidence, a stable tagged consumer contract, and owner acceptance remain open. Component/prompt release tracking belongs in ALM's release gate. |
 
 These are release and behavior gates, not a request to add scanning, syncing, or
