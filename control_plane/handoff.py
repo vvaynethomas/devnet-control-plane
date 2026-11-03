@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -18,7 +19,9 @@ from typing import Any
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
+from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
 
+logger = logging.getLogger(__name__)
 
 def _get_git_state(repo_dir: Path) -> dict[str, str]:
     """Retrieve current branch, head commit, and dirty status."""
@@ -46,6 +49,20 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
     sessions: list[dict[str, Any]] = []
     if not brain_root.is_dir():
         return sessions
+    try:
+        _configured_hub_api()
+    except ConversationLibraryError as exc:
+        if exc.code != "hub_unavailable":
+            raise
+        logger.warning(
+            "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity reader. "
+            "Install devnet-control-plane[conversation-hub] to use the preview adapter."
+        )
+    else:
+        logger.warning(
+            "Handoff retains its legacy Antigravity selection because the preview Hub caps supported "
+            "transcripts rather than DNCP's historical directory-first selection."
+        )
 
     subdirs = sorted(
         [d for d in brain_root.iterdir() if d.is_dir()],
@@ -96,6 +113,20 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
 
     if not transcript_path.is_file():
         return turns
+    try:
+        _configured_hub_api()
+    except ConversationLibraryError as exc:
+        if exc.code != "hub_unavailable":
+            raise
+        logger.warning(
+            "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity parser. "
+            "Install devnet-control-plane[conversation-hub] to use the preview adapter."
+        )
+    else:
+        logger.warning(
+            "Handoff retains its legacy Antigravity parser because the preview Hub caps supported "
+            "transcripts rather than DNCP's historical directory-first selection."
+        )
 
     with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
