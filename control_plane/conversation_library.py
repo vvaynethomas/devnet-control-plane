@@ -38,6 +38,7 @@ SnapshotReader = Callable[[Path], ContextManager[sqlite3.Connection]]
 class ConversationHubAPI:
     read_snapshot: Callable[..., Any]
     read_antigravity_sessions: Callable[..., Any]
+    read_antigravity_transcript: Callable[..., Any]
     read_vscode_copilot_sessions: Callable[..., Any]
     read_copilot_cli_sessions: Callable[..., Any]
     read_legacy_imported_chats: Callable[..., Any]
@@ -252,6 +253,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     required = (
         (loaded.get("library"), "read_snapshot"),
         (loaded.get("sources"), "read_antigravity_sessions"),
+        (loaded.get("sources"), "read_antigravity_transcript"),
         (loaded.get("sources"), "read_vscode_copilot_sessions"),
         (loaded.get("sources"), "read_copilot_cli_sessions"),
         (loaded.get("sources"), "read_legacy_imported_chats"),
@@ -268,6 +270,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     api = ConversationHubAPI(
         read_snapshot=loaded["library"].read_snapshot,
         read_antigravity_sessions=loaded["sources"].read_antigravity_sessions,
+        read_antigravity_transcript=loaded["sources"].read_antigravity_transcript,
         read_vscode_copilot_sessions=loaded["sources"].read_vscode_copilot_sessions,
         read_copilot_cli_sessions=loaded["sources"].read_copilot_cli_sessions,
         read_legacy_imported_chats=loaded["sources"].read_legacy_imported_chats,
@@ -353,7 +356,12 @@ def read_conversation_library(
         raise
     except sqlite3.Error as exc:
         error_name = getattr(exc, "sqlite_errorname", "") or ""
-        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+        legacy_locked = (
+            not error_name
+            and isinstance(exc, sqlite3.OperationalError)
+            and str(exc) in {"database is locked", "database table is locked", "database schema is locked"}
+        )
+        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")) or legacy_locked:
             raise ConversationLibraryError(
                 "library_busy", "Library is busy or locked; retry after current access ends.", 503,
             ) from None

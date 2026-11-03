@@ -8,6 +8,7 @@ to eliminate manual turn-by-turn copy-pasting across AI interfaces.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
@@ -19,8 +20,10 @@ from typing import Any
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
-from control_plane.conversation_library import ConversationLibraryError
-from control_plane.conversation_hub_adapter import local_source_path, read_local_sessions
+from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
+from control_plane.conversation_hub_adapter import (
+    local_source_path, read_antigravity_transcript, read_local_sessions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +67,7 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
         )
         adapted = None
         diagnostics = []
@@ -149,45 +152,36 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
     if not transcript_path.is_file():
         return turns
     try:
+        _configured_hub_api()
         selected_path = transcript_path.resolve(strict=True)
-        if (
-            selected_path.name != "transcript.jsonl"
-            or selected_path.parent.name != "logs"
-            or selected_path.parent.parent.name != ".system_generated"
-        ):
-            raise ValueError("Selected transcript is not an Antigravity transcript path")
-        brain_root = selected_path.parents[3]
-        sessions, diagnostics, _ = read_local_sessions(
-            "antigravity",
-            brain_root,
+        standard_layout = (
+            selected_path.name == "transcript.jsonl"
+            and selected_path.parent.name == "logs"
+            and selected_path.parent.parent.name == ".system_generated"
+        )
+        selected, diagnostics = read_antigravity_transcript(
+            selected_path,
             archive_key="dncp-local-antigravity",
-            max_sessions=20,
-            selection_policy="directory-first",
+            session_id=(
+                selected_path.parents[2].name if standard_layout
+                else hashlib.sha256(selected_path.as_uri().encode("utf-8")).hexdigest()
+            ),
         )
     except ConversationLibraryError as exc:
         if exc.code != "hub_unavailable":
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity parser. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
         )
-        sessions = None
+        selected = None
         diagnostics = []
     except (OSError, ValueError) as exc:
         logger.warning("Conversation Hub could not read the selected Antigravity transcript (%s).", type(exc).__name__)
         return turns
-    if sessions is not None:
+    if selected is not None:
         for item in diagnostics:
             logger.warning("Antigravity handoff source adapter: %s", item)
-        selected = next(
-            (session for session in sessions if local_source_path(session["source_uri"]) == selected_path),
-            None,
-        )
-        if selected is None:
-            logger.warning(
-                "Selected Antigravity transcript is unsupported or outside the directory-first session cap."
-            )
-            return turns
         return selected["turns"]
 
     with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:

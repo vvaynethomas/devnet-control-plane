@@ -71,7 +71,7 @@ class UnifiedConversationHub:
             self._hub_info = {"implementation": "dncp-legacy-adapter", "version": None, "revision": None}
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 producer adapters."
             )
         return self._hub_api
 
@@ -82,6 +82,8 @@ class UnifiedConversationHub:
         max_sessions: int | None = None,
         *,
         selection_policy: str | None = None,
+        max_messages: int | None = None,
+        physical_line_limit: int | None = None,
     ) -> list[dict[str, Any]] | None:
         if self._get_hub_api() is None:
             return None
@@ -91,6 +93,8 @@ class UnifiedConversationHub:
                 archive_key=f"dncp-local-{source_kind}",
                 max_sessions=max_sessions,
                 selection_policy=selection_policy,
+                max_messages=max_messages,
+                physical_line_limit=physical_line_limit,
             )
             self._source_diagnostics.extend(diagnostics)
             return sessions
@@ -323,7 +327,9 @@ class UnifiedConversationHub:
     def scan_copilot_cli(self, session_state_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local GitHub Copilot CLI event streams."""
         root = session_state_root or (Path(os.path.expanduser("~")) / ".copilot" / "session-state")
-        selected = self._read_local_sessions("copilot-cli", root, max_sessions=500)
+        selected = self._read_local_sessions(
+            "copilot-cli", root, max_sessions=500, max_messages=10, physical_line_limit=100,
+        )
         if selected is not None:
             return selected
         if not root.is_dir():
@@ -436,7 +442,7 @@ class UnifiedConversationHub:
         if self._get_hub_api() is None and not self._source_diagnostics:
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 producer adapters."
             )
         all_sessions = (
             self.scan_antigravity() +
@@ -458,7 +464,16 @@ class UnifiedConversationHub:
                 continue
             if q_lower:
                 text_to_search = (s["title"] + " " + s["model"] + " " + s["workspace"] + " " +
-                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", []))).lower()
+                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", [])) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for message in s.get("unassigned_messages", [])
+                                  ) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for turn in s.get("turns", [])
+                                      for message in turn.get("other_messages", [])
+                                  )).lower()
                 if q_lower not in text_to_search:
                     continue
             filtered.append(s)
@@ -467,6 +482,7 @@ class UnifiedConversationHub:
         total_tokens = sum(s.get("est_total_tokens", 0) for s in all_sessions)
         total_in = sum(s.get("est_input_tokens", 0) for s in all_sessions)
         total_out = sum(s.get("est_output_tokens", 0) for s in all_sessions)
+        total_unclassified = sum(s.get("est_unclassified_tokens", 0) for s in all_sessions)
         total_turns = sum(s.get("turn_count", 0) for s in all_sessions)
 
         platforms_count: dict[str, int] = {}
@@ -485,6 +501,7 @@ class UnifiedConversationHub:
                 "est_total_tokens": total_tokens,
                 "est_input_tokens": total_in,
                 "est_output_tokens": total_out,
+                "est_unclassified_tokens": total_unclassified,
                 "platforms": platforms_count,
                 "models": models_count,
             },

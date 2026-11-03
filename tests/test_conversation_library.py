@@ -86,8 +86,8 @@ class ConversationLibraryTests(unittest.TestCase):
                 synthetic_read_snapshot,
                 {
                     "implementation": "conversation-hub",
-                    "version": "0.1.4",
-                    "revision": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2",
+                    "version": "0.1.6",
+                    "revision": "ea8d608b00aa1900132b2d2f33d90561143fa471",
                 },
             ),
         )
@@ -153,7 +153,7 @@ class ConversationLibraryTests(unittest.TestCase):
         self.assertIn("never followed", result["diagnostics"][1])
         self.assertEqual(result["contract"]["schema_version"], 1)
         self.assertEqual(result["contract"]["producer_revision"], "11c362c621727a331a1ecf9ffee40220d8a6d373")
-        self.assertEqual(result["library_reader"]["revision"], "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2")
+        self.assertEqual(result["library_reader"]["revision"], "ea8d608b00aa1900132b2d2f33d90561143fa471")
         self.assertEqual(before, self.library.read_bytes())
         self.assertEqual(list(self.library.parent.iterdir()), [self.library])
 
@@ -359,8 +359,8 @@ class ConversationLibraryTests(unittest.TestCase):
         before = self.library.read_bytes()
         provider_info = {
             "implementation": "conversation-hub",
-            "version": "0.1.4",
-            "revision": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2",
+            "version": "0.1.6",
+            "revision": "ea8d608b00aa1900132b2d2f33d90561143fa471",
         }
         with patch(
             "control_plane.conversation_library._configured_snapshot_reader",
@@ -385,7 +385,7 @@ class ConversationLibraryTests(unittest.TestCase):
 
     def test_wrong_installed_hub_commit_is_rejected(self) -> None:
         class WrongHubDistribution:
-            version = "0.1.4"
+            version = "0.1.6"
 
             @staticmethod
             def read_text(name: str) -> str:
@@ -398,7 +398,7 @@ class ConversationLibraryTests(unittest.TestCase):
             with self.assertRaises(ConversationLibraryError) as caught:
                 _configured_snapshot_reader()
         self.assertEqual(caught.exception.code, "hub_incompatible")
-        self.assertIn("pinned v0.1.4 commit", str(caught.exception))
+        self.assertIn("pinned v0.1.6 commit", str(caught.exception))
 
     def test_checked_distribution_loading_ignores_path_shadow_and_preloaded_modules(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -422,6 +422,7 @@ class ConversationLibraryTests(unittest.TestCase):
             )
             (package_dir / "sources.py").write_text(
                 "def read_antigravity_sessions(*args, **kwargs): pass\n"
+                "def read_antigravity_transcript(*args, **kwargs): pass\n"
                 "def read_vscode_copilot_sessions(*args, **kwargs): pass\n"
                 "def read_copilot_cli_sessions(*args, **kwargs): pass\n"
                 "def read_legacy_imported_chats(*args, **kwargs): pass\n",
@@ -440,7 +441,7 @@ class ConversationLibraryTests(unittest.TestCase):
             )
 
             class CheckedDistribution:
-                version = "0.1.4"
+                version = "0.1.6"
                 files = [
                     PurePosixPath("conversation_hub/library.py"),
                     PurePosixPath("conversation_hub/model.py"),
@@ -453,7 +454,7 @@ class ConversationLibraryTests(unittest.TestCase):
                 def read_text(name: str) -> str:
                     return json.dumps({
                         "url": "https://github.com/vvaynethomas/conversation-hub.git",
-                        "vcs_info": {"commit_id": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2"},
+                        "vcs_info": {"commit_id": "ea8d608b00aa1900132b2d2f33d90561143fa471"},
                     })
 
                 @staticmethod
@@ -474,7 +475,7 @@ class ConversationLibraryTests(unittest.TestCase):
 
             self.assertEqual(reader(None), "checked-distribution")
             self.assertEqual(Path(reader.__globals__["__file__"]), library_path)
-            self.assertEqual(info["revision"], "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2")
+            self.assertEqual(info["revision"], "ea8d608b00aa1900132b2d2f33d90561143fa471")
             self.assertFalse(marker.exists())
 
     def test_pinned_hub_reader_reads_synthetic_library_when_extra_is_installed(self) -> None:
@@ -489,8 +490,8 @@ class ConversationLibraryTests(unittest.TestCase):
         ):
             result = read_conversation_library(self.library)
         self.assertEqual(reader_info["implementation"], "conversation-hub")
-        self.assertEqual(reader_info["version"], "0.1.4")
-        self.assertEqual(reader_info["revision"], "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2")
+        self.assertEqual(reader_info["version"], "0.1.6")
+        self.assertEqual(reader_info["revision"], "ea8d608b00aa1900132b2d2f33d90561143fa471")
         self.assertEqual(result["observations"], [fixture()])
         self.assertEqual(before, self.library.read_bytes())
 

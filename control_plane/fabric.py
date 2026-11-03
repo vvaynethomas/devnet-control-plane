@@ -141,7 +141,7 @@ def _harvest_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; Fabric uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
         )
         sessions = None
         diagnostics = []
@@ -262,6 +262,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         sessions, diagnostics, _ = read_local_sessions(
             "copilot-cli", copilot_root,
             archive_key="dncp-local-copilot-cli", max_sessions=max_sessions,
+            physical_line_limit=120, content_limit=800,
         )
     except ConversationLibraryError as exc:
         if exc.code != "hub_unavailable":
@@ -269,7 +270,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         else:
             logger.warning(
                 "Optional Conversation Hub is not installed; Fabric uses its legacy Copilot CLI reader. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 adapter."
             )
         sessions = None
         diagnostics = []
@@ -283,22 +284,15 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         for item in diagnostics:
             logger.warning("Copilot CLI source adapter: %s", item)
         for session in sessions:
-            snippets: list[str] = []
-            for turn in session["turns"]:
-                snippets.extend(
-                    [turn["user_prompt"]]
-                    + turn["assistant_responses"]
-                    + [
-                        message["content"]
-                        for message in turn.get("other_messages", [])
-                    ]
-                )
-            snippets.extend(
-                message["content"] for message in session.get("unassigned_messages", [])
-            )
+            snippets = [message["content"] for message in session["messages"]]
             snippets = [text for text in snippets if isinstance(text, str) and len(text.strip()) > 15]
             if not snippets:
                 continue
+            logger.warning(
+                "Copilot CLI Fabric excerpts limited to 12 qualifying messages and 800 characters per message "
+                "from the original source before boundary-safe redaction; "
+                "later or longer content is not indexed."
+            )
             combined = "\n\n".join(snippets[:12])
             mentioned = sorted(set(match.group(0) for match in ID_RE.finditer(combined)))
             records.append({

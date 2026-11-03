@@ -1,9 +1,12 @@
 import json
 import os
+from html.parser import HTMLParser
 from pathlib import Path
 from pathlib import PureWindowsPath
 import sqlite3
 import tempfile
+import shutil
+import subprocess
 import unittest
 from contextlib import closing
 from types import SimpleNamespace
@@ -18,10 +21,95 @@ from control_plane.handoff import (
 from control_plane.fabric import _harvest_antigravity_sessions, _harvest_copilot_sessions
 from control_plane.conversations import UnifiedConversationHub
 from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
-from control_plane.ui import ControlPlaneWorkbench
+from control_plane.ui import ControlPlaneWorkbench, _copy_attributes
 
 
 class ConversationHubAdapterTests(unittest.TestCase):
+    def test_copy_controls_preserve_literal_content_without_javascript_interpolation(self) -> None:
+        payload = '${globalThis.copyInjected = true} "quoted" \'single\' \\path\\ `tick`\nnext\r\nline & <tag>'
+
+        class CopyButtons(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.buttons = []
+
+            def handle_starttag(self, tag, attrs) -> None:
+                attributes = dict(attrs)
+                if tag == "button" and "data-copy-text" in attributes:
+                    self.buttons.append(attributes)
+
+        parser = CopyButtons()
+        parser.feed(f"<button {_copy_attributes(payload)}>Copy</button>")
+        self.assertEqual(json.loads(parser.buttons[0]["data-copy-text"]), payload)
+        for ordered in (False, True):
+            turn = {
+                "turn_index": 1, "user_prompt": payload,
+                "assistant_responses": [f"```text\n{payload}\n```"],
+                "tool_calls": [],
+            }
+            if ordered:
+                turn["messages"] = [
+                    {"role": "user", "source_role": "user", "content": payload},
+                    {"role": "tool", "source_role": "tool", "content": payload},
+                    {"role": "assistant", "source_role": "assistant",
+                     "content": turn["assistant_responses"][0]},
+                ]
+            session = {
+                "session_id": "CLI-synthetic", "full_session_id": "synthetic",
+                "platform": "GitHub Copilot CLI", "model": "Copilot CLI",
+                "title": "Synthetic copy controls", "workspace": "Terminal",
+                "created_date": "", "turns": [turn], "turn_count": 1,
+                "est_total_tokens": 10, "est_input_tokens": 5, "est_output_tokens": 5,
+            }
+            result = {
+                "sessions": [session],
+                "summary": {
+                    "total_sessions": 1, "filtered_sessions": 1, "total_turns": 1,
+                    "est_total_tokens": 10, "est_input_tokens": 5, "est_output_tokens": 5,
+                    "platforms": {"GitHub Copilot CLI": 1}, "models": {"Copilot CLI": 1},
+                },
+            }
+            workbench = ControlPlaneWorkbench.__new__(ControlPlaneWorkbench)
+            workbench.factory_root = self.root
+            workbench.network_root = self.root
+            workbench.conversations_hub = SimpleNamespace(get_all_conversations=lambda **_: result)
+            with patch("control_plane.handoff.compile_context_handoff", return_value={"markdown": payload}):
+                rendered = workbench.render_conversations_tab()
+            rendered_parser = CopyButtons()
+            rendered_parser.feed(rendered)
+            buttons = rendered_parser.buttons
+            self.assertEqual(len(buttons), 5)
+            copied = [json.loads(button["data-copy-text"]) for button in buttons]
+            self.assertIn(payload, copied)
+            self.assertIn(turn["assistant_responses"][0], copied)
+            full_turn = (
+                "\n\n".join(f"{message['role'].upper()}:\n{message['content']}"
+                            for message in turn["messages"])
+                if ordered else f"USER:\n{payload}\n\nASSISTANT:\n{turn['assistant_responses'][0]}"
+            )
+            self.assertIn(full_turn, copied)
+            for button in buttons:
+                self.assertEqual(button["onclick"],
+                                 "copySnippet(JSON.parse(this.dataset.copyText), this)")
+            node = shutil.which("node")
+            if node:
+                script = """
+                const fs = require('fs');
+                const buttons = JSON.parse(fs.readFileSync(0, 'utf8'));
+                const copied = [];
+                globalThis.copySnippet = text => copied.push(text);
+                for (const attrs of buttons) {
+                    new Function(attrs.onclick).call({dataset: {copyText: attrs['data-copy-text']}});
+                }
+                if (globalThis.copyInjected) throw new Error('Transcript executed');
+                process.stdout.write(JSON.stringify(copied));
+                """
+                execution = subprocess.run(
+                    [node, "-e", script], input=json.dumps(buttons), text=True,
+                    capture_output=True, check=True,
+                )
+                self.assertEqual(json.loads(execution.stdout), copied)
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -109,6 +197,26 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertTrue(imported[0]["source_path"].startswith("database://"))
         self.assertEqual(self.database.read_bytes(), database_before)
 
+    def test_imported_odd_token_total_is_preserved_with_and_without_hub(self) -> None:
+        with closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("UPDATE imported_chats SET est_tokens = 101")
+            connection.commit()
+        legacy = UnifiedConversationHub(data_dir=self.root / "odd-legacy")
+        legacy.db_path = self.database
+        with patch.object(legacy, "_get_hub_api", return_value=None):
+            session = legacy.get_imported_chats()[0]
+            self.assertEqual(session["est_total_tokens"], 101)
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for odd-total parity")
+            raise
+        imported, _, _ = read_legacy_sessions(self.database, archive_key="synthetic-odd")
+        self.assertEqual(imported[0]["est_total_tokens"], 101)
+        self.assertEqual(imported[0]["est_input_tokens"], 50)
+        self.assertEqual(imported[0]["est_output_tokens"], 50)
+
     def test_fabric_cli_uses_hub_and_antigravity_preserves_selection(self) -> None:
         with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
              patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
@@ -123,6 +231,446 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(discovered[0]["session_id"], "session-a")
         self.assertEqual(turns[0]["user_prompt"], "hello synthetic")
         self.assertEqual(turns[0]["assistant_responses"], ["synthetic reply"])
+
+    def test_hub_cli_search_and_presentation_preserve_all_message_roles_and_order(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for source-adapter coverage")
+            raise
+        path = self.cli_root / "session-b" / "events.jsonl"
+        path.write_text("\n".join([
+            json.dumps({"message": "orphanneedle synthetic unassigned prelude"}),
+            json.dumps({"role": "user", "message": "promptneedle synthetic user content"}),
+            json.dumps({"role": "tool", "message": "toolneedle synthetic tool content"}),
+            json.dumps({"role": "assistant", "message": "answerneedle synthetic assistant content"}),
+        ]) + "\n", encoding="utf-8")
+        hub = UnifiedConversationHub(data_dir=self.root / "search-data")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            for query in ("orphanneedle", "promptneedle", "toolneedle", "answerneedle"):
+                with self.subTest(query=query):
+                    result = hub.get_all_conversations(query=query)
+                    self.assertEqual(len(result["sessions"]), 1)
+            self.assertEqual(hub.get_all_conversations(query="absentneedle")["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual([message["role"] for message in session["messages"]],
+                         ["unknown", "user", "tool", "assistant"])
+        self.assertEqual(session["unassigned_messages"][0]["role"], "unknown")
+        self.assertEqual(session["turns"][0]["other_messages"][0]["role"], "tool")
+        self.assertEqual(session["est_total_tokens"],
+                         session["est_input_tokens"] + session["est_output_tokens"]
+                         + session["est_unclassified_tokens"])
+        self.assertGreater(session["est_unclassified_tokens"], 0)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            body = _harvest_copilot_sessions()[0]["body"]
+        words = ("orphanneedle", "promptneedle", "toolneedle", "answerneedle")
+        self.assertEqual([body.index(word) for word in words],
+                         sorted(body.index(word) for word in words))
+        workbench = ControlPlaneWorkbench.__new__(ControlPlaneWorkbench)
+        workbench.factory_root = self.root
+        workbench.network_root = self.root
+        workbench.conversations_hub = SimpleNamespace(get_all_conversations=lambda **_: result)
+        with patch("control_plane.handoff.compile_context_handoff", return_value={"markdown": ""}):
+            rendered = workbench.render_conversations_tab()
+        visible_text = [
+            rendered.index(f">{message['content']}</div>")
+            for message in session["messages"]
+        ]
+        self.assertEqual(visible_text, sorted(visible_text))
+
+    def test_hub_unclassified_cli_tokens_title_search_and_summary_are_truthful(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for source-adapter coverage")
+            raise
+        synthetic_secret = "ghp_" + "A" * 24
+        path = self.cli_root / "session-b" / "events.jsonl"
+        path.write_text("\n".join([
+            json.dumps({"message": f"unknownneedle synthetic CLI activity {synthetic_secret}"}),
+            json.dumps({"role": "tool", "message": "toolneedle synthetic tool-only content"}),
+        ]) + "\n", encoding="utf-8")
+        hub = UnifiedConversationHub(data_dir=self.root / "unknown-data")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            for query in ("unknownneedle", "toolneedle"):
+                self.assertEqual(len(hub.get_all_conversations(query=query)["sessions"]), 1)
+            self.assertEqual(hub.get_all_conversations(query=synthetic_secret)["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual(session["turns"], [])
+        self.assertEqual(session["title"], session["messages"][0]["content"][:90])
+        self.assertNotIn(synthetic_secret, session["title"])
+        expected = sum(len(text) // 4 for text in (
+            f"unknownneedle synthetic CLI activity {synthetic_secret}",
+            "toolneedle synthetic tool-only content",
+        ))
+        self.assertGreater(expected, 0)
+        for value in (session, result["summary"]):
+            self.assertEqual(value["est_input_tokens"], 0)
+            self.assertEqual(value["est_output_tokens"], 0)
+            self.assertEqual(value["est_unclassified_tokens"], expected)
+            self.assertEqual(value["est_total_tokens"], expected)
+        workbench = ControlPlaneWorkbench.__new__(ControlPlaneWorkbench)
+        workbench.factory_root = self.root
+        workbench.network_root = self.root
+        workbench.conversations_hub = SimpleNamespace(get_all_conversations=lambda **_: result)
+        with patch("control_plane.handoff.compile_context_handoff", return_value={"markdown": ""}):
+            rendered = workbench.render_conversations_tab()
+        self.assertIn(f"Unclassified: ~{expected} (no input/output role)", rendered)
+        self.assertIn(f"0 in / 0 out / {expected} unclassified; no input/output role", rendered)
+        self.assertNotIn(synthetic_secret, rendered)
+
+    def test_cli_qualifying_message_and_fabric_excerpt_bounds(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for snippet bounds")
+            raise
+        path = self.cli_root / "session-b" / "events.jsonl"
+        events = [{"message": "short"}, {"event": "unsupported"}]
+        qualifying = []
+        for index in range(15):
+            text = f"snippet-{index:02d} " + "x" * 820 + f" beyond800-{index:02d}"
+            qualifying.append(text)
+            events.append({"role": ("user", "tool", "assistant")[index % 3], "message": f"  {text}  "})
+        path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+        hub = UnifiedConversationHub(data_dir=self.root / "snippet-data")
+        sessions = hub.scan_copilot_cli(self.cli_root)
+        self.assertEqual([message["content"] for message in sessions[0]["messages"]], qualifying[:10])
+        self.assertNotIn("snippet-10", json.dumps(sessions))
+        self.assertEqual([message["role"] for message in sessions[0]["messages"]],
+                         [("user", "tool", "assistant")[index % 3] for index in range(10)])
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+             self.assertLogs("control_plane.fabric", level="WARNING") as captured:
+            fabric = _harvest_copilot_sessions()
+        self.assertEqual(fabric[0]["body"], "\n\n".join(text[:800] for text in qualifying[:12]))
+        self.assertNotIn("beyond800", fabric[0]["body"])
+        self.assertNotIn("snippet-12", fabric[0]["body"])
+        self.assertTrue(any("800 characters per message" in note for note in captured.output))
+        self.assertTrue(any("qualifying messages" in note for note in hub._source_diagnostics))
+
+    def test_cli_title_and_search_exclude_later_prompt_but_totals_cover_window(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for bounded title parity")
+            raise
+        events = [
+            {"role": "tool", "message": f"permitted synthetic tool message {index}"}
+            for index in range(10)
+        ]
+        events.append({"role": "user", "message": "excludedneedle eleventh synthetic user prompt"})
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        hub = UnifiedConversationHub(data_dir=self.root / "bounded-title")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            self.assertEqual(hub.get_all_conversations(query="excludedneedle")["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual(session["title"], events[0]["message"])
+        self.assertNotIn("excludedneedle", json.dumps(session))
+        expected_input = len(events[-1]["message"]) // 4
+        expected_other = sum(len(event["message"]) // 4 for event in events[:10])
+        self.assertEqual(session["est_input_tokens"], expected_input)
+        self.assertEqual(session["est_unclassified_tokens"], expected_other)
+        self.assertEqual(session["est_total_tokens"], expected_input + expected_other)
+        self.assertEqual(result["summary"]["est_total_tokens"], expected_input + expected_other)
+        events = [
+            {"role": "user", "message": "permitted synthetic user prompt"},
+            *[{"role": "tool", "message": f"permitted synthetic tool message {index}"} for index in range(9)],
+            {"role": "assistant", "message": "excluded synthetic assistant",
+             "type": "PLANNER_RESPONSE",
+             "tool_calls": [{"name": "excludedtoolneedle", "toolSummary": "excludedsummaryneedle"}]},
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        session = scan_cli(self.cli_root)[0]
+        self.assertEqual(session["turns"][0]["tool_calls"], [])
+        self.assertNotIn("excludedtoolneedle", json.dumps(session))
+        self.assertNotIn("excludedsummaryneedle", json.dumps(session))
+        events = [
+            {"role": "tool", "message": "first permitted synthetic tool title"},
+            {"role": "user", "message": "later permitted synthetic user prompt"},
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        session = scan_cli(self.cli_root)[0]
+        self.assertEqual(session["title"], events[0]["message"])
+        self.assertEqual(session["turns"][0]["user_prompt"], events[1]["message"])
+
+    def _write_cli_physical_window_fixture(self) -> None:
+        lines = ["\n", json.dumps({"event": "unsupported"}) + "\n"] * 49
+        lines.append(json.dumps({"role": "user", "message": "line099 visible synthetic prompt"}) + "\n")
+        lines.append(json.dumps({"role": "tool", "message": "line100 visible synthetic tool"}) + "\n")
+        lines.append(json.dumps({"role": "assistant", "message": "line101 Fabric-only synthetic answer"}) + "\n")
+        lines.extend(["\n"] * 18)
+        lines.append(json.dumps({"message": "line120 Fabric boundary synthetic event"}) + "\n")
+        lines.append("{malformed beyond both physical windows}\n")
+        (self.cli_root / "session-b" / "events.jsonl").write_bytes("".join(lines).encode("utf-8"))
+
+    def test_cli_manager_string_eligibility_differs_from_fabric_without_raw_leaks(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for record eligibility")
+            raise
+        secret = "ghp_" + "Z" * 80
+        strings = [f"string snippet {index:02d} synthetic content" for index in range(11)]
+        strings[0] += f" {secret}"
+        events = [
+            {"text": "textonlyneedle synthetic content"},
+            {"message": {"nested": "dictneedle synthetic content"}},
+            *[{"role": "tool", "message": text} for text in strings],
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        hub = UnifiedConversationHub(data_dir=self.root / "eligibility-data")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            for query in ("textonlyneedle", "dictneedle", secret, "snippet 10"):
+                self.assertEqual(hub.get_all_conversations(query=query)["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual(len(session["messages"]), 10)
+        self.assertTrue(session["title"].startswith("string snippet 00"))
+        self.assertNotIn(secret, json.dumps(session))
+        expected = sum(len(text.strip()) // 4 for text in strings)
+        self.assertEqual(session["est_total_tokens"], expected)
+        self.assertEqual(session["est_unclassified_tokens"], expected)
+        self.assertEqual(result["summary"]["est_total_tokens"], expected)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            body = _harvest_copilot_sessions()[0]["body"]
+        self.assertIn("textonlyneedle", body)
+        self.assertIn("dictneedle", body)
+        self.assertNotIn(secret, body)
+
+    def test_no_hub_cli_physical_line_windows_exclude_outside_malformed_content(self) -> None:
+        self._write_cli_physical_window_fixture()
+        hub = UnifiedConversationHub(data_dir=self.root / "window-legacy")
+        with patch.object(hub, "_get_hub_api", return_value=None):
+            sessions = hub.scan_copilot_cli(self.cli_root)
+        self.assertEqual(len(sessions), 1)
+        visible = json.dumps(sessions)
+        self.assertIn("line099", visible)
+        self.assertIn("line100", visible)
+        self.assertNotIn("line101", visible)
+        self.assertNotIn("line120", visible)
+        unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+             patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            fabric = _harvest_copilot_sessions()
+        self.assertEqual(len(fabric), 1)
+        self.assertIn("line101", fabric[0]["body"])
+        self.assertIn("line120", fabric[0]["body"])
+        self.assertNotIn("malformed", fabric[0]["body"])
+
+    def test_hub_cli_physical_windows_preserve_blank_slots_and_outside_errors(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for physical windows")
+            raise
+        for newline in ("\n", "\r\n", "\r"):
+            self._write_cli_physical_window_fixture()
+            path = self.cli_root / "session-b" / "events.jsonl"
+            path.write_bytes(path.read_bytes().replace(b"\n", newline.encode("ascii")))
+            before = path.read_bytes()
+            hub = UnifiedConversationHub(data_dir=self.root / "window-hub")
+            sessions = hub.scan_copilot_cli(self.cli_root)
+            visible = json.dumps(sessions)
+            self.assertIn("line099", visible)
+            self.assertIn("line100", visible)
+            self.assertNotIn("line101", visible)
+            self.assertNotIn("line120", visible)
+            self.assertTrue(any("physical" in note.lower() for note in hub._source_diagnostics))
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                fabric = _harvest_copilot_sessions()
+            self.assertIn("line101", fabric[0]["body"])
+            self.assertIn("line120", fabric[0]["body"])
+            self.assertNotIn("malformed", fabric[0]["body"])
+            self.assertEqual(path.read_bytes(), before)
+            source_globals = api.read_copilot_cli_sessions.__globals__
+            with patch.dict(source_globals, {"MAX_EVENTS_PER_SESSION": 51}):
+                with self.assertRaises(ValueError):
+                    api.read_copilot_cli_sessions(
+                        self.cli_root, archive_key="window-resource", physical_line_limit=100,
+                        utf8_errors="replace", timestamp_policy="legacy-string",
+                    )
+
+    def _write_invalid_utf8_source_fixtures(self) -> Path:
+        transcript = self.session_dir / ".system_generated" / "logs" / "transcript.jsonl"
+        transcript.write_bytes(
+            b'{"type":"USER_INPUT","content":"synthetic invalid \xff prompt"}\n'
+            b'{"type":"PLANNER_RESPONSE","content":"synthetic invalid \xff answer"}\n'
+        )
+        (self.vscode_root / "workspace-a" / "chatSessions" / "chat-a.jsonl").write_bytes(
+            b'{"v":{"inputText":"synthetic invalid \xff vscode prompt"}}\n'
+            b'{"v":"synthetic invalid \xff vscode answer"}\n'
+        )
+        (self.cli_root / "session-b" / "events.jsonl").write_bytes(
+            b'{"role":"user","message":"synthetic invalid \xff cli prompt"}\n'
+            + b'\n' * 119
+            + b'{"message":"invalid \xff beyond both windows"}\n'
+        )
+        return transcript
+
+    def test_no_hub_replacement_decoding_preserves_selected_source_content(self) -> None:
+        transcript = self._write_invalid_utf8_source_fixtures()
+        hub = UnifiedConversationHub(data_dir=self.root / "replace-legacy")
+        with patch.object(hub, "_get_hub_api", return_value=None):
+            for sessions in (
+                hub.scan_antigravity(self.brain_root),
+                hub.scan_vscode_copilot(self.vscode_root),
+                hub.scan_copilot_cli(self.cli_root),
+            ):
+                self.assertEqual(len(sessions), 1)
+                self.assertIn("\ufffd", json.dumps(sessions, ensure_ascii=False))
+                self.assertNotIn("beyond both windows", json.dumps(sessions))
+        unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+        with patch("control_plane.handoff._configured_hub_api", side_effect=unavailable):
+            turns = parse_session_turns(transcript)
+        self.assertIn("\ufffd", turns[0]["user_prompt"])
+        self.assertIn("\ufffd", turns[0]["assistant_responses"][0])
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+             patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            for records in (_harvest_antigravity_sessions(), _harvest_copilot_sessions()):
+                self.assertEqual(len(records), 1)
+                self.assertIn("\ufffd", records[0]["body"])
+                self.assertNotIn("beyond both windows", records[0]["body"])
+
+    def test_hub_replacement_decoding_preserves_content_and_reports_outside_bytes(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for replacement decoding")
+            raise
+        transcript = self._write_invalid_utf8_source_fixtures()
+        before = transcript.read_bytes()
+        hub = UnifiedConversationHub(data_dir=self.root / "replace-hub")
+        for sessions in (
+            hub.scan_antigravity(self.brain_root),
+            hub.scan_vscode_copilot(self.vscode_root),
+            hub.scan_copilot_cli(self.cli_root),
+        ):
+            self.assertEqual(len(sessions), 1)
+            self.assertIn("\ufffd", json.dumps(sessions, ensure_ascii=False))
+            self.assertNotIn("beyond both windows", json.dumps(sessions))
+        with self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+            turns = parse_session_turns(transcript)
+        self.assertIn("\ufffd", turns[0]["user_prompt"])
+        self.assertTrue(any("UTF-8" in note for note in captured.output))
+        self.assertEqual(transcript.read_bytes(), before)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            for records in (_harvest_antigravity_sessions(), _harvest_copilot_sessions()):
+                self.assertEqual(len(records), 1)
+                self.assertIn("\ufffd", records[0]["body"])
+                self.assertNotIn("beyond both windows", records[0]["body"])
+        with self.assertRaises(ValueError):
+            api.read_copilot_cli_sessions(self.cli_root, archive_key="strict-utf8", physical_line_limit=100)
+        result = api.read_copilot_cli_sessions(
+            self.cli_root, archive_key="replace-evidence", physical_line_limit=100,
+            utf8_errors="replace", timestamp_policy="legacy-string",
+        )
+        evidence = result.batches[0].conversations[0].source_record["utf8_decoding"]
+        self.assertEqual(evidence["replacement_count"], 2)
+
+    def test_hub_fabric_redaction_keeps_original_prefix_and_masks_crossing_token(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for source-prefix redaction")
+            raise
+        secret = "ghp_" + "S" * 80
+        cases = [
+            "start " + secret + " " + "x" * 800 + " postboundaryneedle",
+            "x" * 790 + " " + secret + " postboundaryneedle",
+        ]
+        for text in cases:
+            (self.cli_root / "session-b" / "events.jsonl").write_text(
+                json.dumps({"message": text}) + "\n", encoding="utf-8",
+            )
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                body = _harvest_copilot_sessions()[0]["body"]
+            self.assertNotIn("postboundaryneedle", body)
+            self.assertNotIn(secret, body)
+            self.assertNotIn("ghp_", body)
+            self.assertIn("[REDACTED_SECRET]", body)
+            if text.startswith("start"):
+                self.assertEqual(body, "start [REDACTED_SECRET]" + text[len("start ") + len(secret):800])
+
+    def test_no_hub_cli_timestamps_preserve_first_truthy_value_display(self) -> None:
+        path = self.cli_root / "session-b" / "events.jsonl"
+        for first, later in (
+            (1735725600000, "2025-01-01T11:00:00Z"),
+            ("2025-01-01T11:00:00Z", 1735725600000),
+            ({"synthetic": "timestamp"}, 42),
+        ):
+            with self.subTest(first=first):
+                path.write_text("\n".join(json.dumps(event) for event in (
+                    {"timestamp": first, "message": "synthetic timestamp prompt"},
+                    {"timestamp": later, "message": "synthetic timestamp answer"},
+                )) + "\n", encoding="utf-8")
+                hub = UnifiedConversationHub(data_dir=self.root / "timestamp-legacy")
+                with patch.object(hub, "_get_hub_api", return_value=None):
+                    sessions = hub.scan_copilot_cli(self.cli_root)
+                self.assertEqual(sessions[0]["created_date"], str(first)[:19])
+                unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+                with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+                     patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                    fabric = _harvest_copilot_sessions()
+                self.assertEqual(fabric[0]["created_date"], str(first)[:19])
+
+    def test_hub_cli_timestamp_compatibility_preserves_first_truthy_display(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Hub for timestamp compatibility")
+            raise
+        path = self.cli_root / "session-b" / "events.jsonl"
+        for first, later in (
+            (1735725600000, "2025-01-01T11:00:00Z"),
+            ("2025-01-01T11:00:00Z", 1735725600000),
+            ({"synthetic": "timestamp"}, 42),
+        ):
+            path.write_text("\n".join(json.dumps(event) for event in (
+                {"timestamp": first, "message": "synthetic timestamp prompt"},
+                {"timestamp": later, "message": "synthetic timestamp answer"},
+            )) + "\n", encoding="utf-8")
+            hub = UnifiedConversationHub(data_dir=self.root / "timestamp-hub")
+            self.assertEqual(hub.scan_copilot_cli(self.cli_root)[0]["created_date"], str(first)[:19])
+            with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                self.assertEqual(_harvest_copilot_sessions()[0]["created_date"], str(first)[:19])
+            with self.assertRaises(ValueError):
+                api.read_copilot_cli_sessions(self.cli_root, archive_key="strict-timestamp")
 
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
@@ -348,6 +896,104 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(cli[0]["full_session_id"], "session-b")
         self.assertEqual(imported, [])
 
+    def _assert_direct_handoff_reads_exact_path(self) -> None:
+        outside_layout = self.root / "selected%20 file.jsonl"
+        outside_cap = self.brain_root / "old-session" / ".system_generated" / "logs" / "transcript.jsonl"
+        outside_cap.parent.mkdir(parents=True)
+        for index in range(21):
+            directory = self.brain_root / f"new-session-{index}"
+            directory.mkdir()
+            os.utime(directory, (1_800_000_000 + index, 1_800_000_000 + index))
+        os.utime(outside_cap.parents[2], (1_600_000_000, 1_600_000_000))
+        events = "\n".join([
+            "{malformed synthetic line}",
+            json.dumps({"type": "USER_INPUT", "content": "synthetic selected prompt"}),
+            json.dumps({"type": "PLANNER_RESPONSE", "content": "synthetic selected answer"}),
+        ]) + "\n"
+        outside_layout.write_text(events, encoding="utf-8")
+        outside_cap.write_text(events, encoding="utf-8")
+        for path in (outside_layout, outside_cap):
+            with self.subTest(path=path):
+                before = path.read_bytes()
+                turns = parse_session_turns(path)
+                self.assertEqual(turns[0]["user_prompt"], "synthetic selected prompt")
+                self.assertEqual(turns[0]["assistant_responses"], ["synthetic selected answer"])
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_direct_handoff_without_hub_reads_exact_path_and_skips_bad_lines(self) -> None:
+        unavailable = ConversationLibraryError("hub_unavailable", "optional package unavailable", 503)
+        with patch("control_plane.handoff._configured_hub_api", side_effect=unavailable):
+            self._assert_direct_handoff_reads_exact_path()
+
+    def test_direct_handoff_with_hub_reads_exact_path_and_skips_bad_lines(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for exact-file coverage")
+            raise
+        with self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+            self._assert_direct_handoff_reads_exact_path()
+        self.assertTrue(any("malformed line(s) skipped" in item for item in captured.output))
+
+    def test_direct_handoff_incompatible_hub_fails_closed_before_layout_check(self) -> None:
+        path = self.root / "off-layout.jsonl"
+        path.write_text("{}\n", encoding="utf-8")
+        incompatible = ConversationLibraryError("hub_incompatible", "wrong installed commit", 503)
+        with patch("control_plane.handoff._configured_hub_api", side_effect=incompatible):
+            with self.assertRaises(ConversationLibraryError):
+                parse_session_turns(path)
+
+    def test_malformed_siblings_are_isolated_across_all_migrated_consumers(self) -> None:
+        try:
+            api, _ = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for contract coverage")
+            raise
+        bad_ag = self.brain_root / "bad-session" / ".system_generated" / "logs" / "transcript.jsonl"
+        bad_vscode = self.vscode_root / "workspace-a" / "chatSessions" / "bad.jsonl"
+        bad_cli = self.cli_root / "bad-session" / "events.jsonl"
+        for path in (bad_ag, bad_vscode, bad_cli):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{malformed synthetic file}\n", encoding="utf-8")
+        for kind, root in (
+            ("antigravity", self.brain_root),
+            ("vscode-copilot", self.vscode_root),
+            ("copilot-cli", self.cli_root),
+        ):
+            with self.subTest(source=kind):
+                reader = getattr(api, {
+                    "antigravity": "read_antigravity_sessions",
+                    "vscode-copilot": "read_vscode_copilot_sessions",
+                    "copilot-cli": "read_copilot_cli_sessions",
+                }[kind])
+                with self.assertRaises(ValueError):
+                    reader(root, archive_key="strict-contract", max_sessions=25)
+                sessions, diagnostics, _ = read_local_sessions(
+                    kind, root, archive_key="synthetic-contract", max_sessions=25,
+                    selection_policy="directory-first" if kind == "antigravity" else None,
+                )
+                self.assertEqual(len(sessions), 1)
+                self.assertTrue(any("1 malformed selected source files skipped" in note for note in diagnostics))
+                self.assertFalse(any("{malformed synthetic file}" in note for note in diagnostics))
+        manager = UnifiedConversationHub(data_dir=self.root / "hub-compatibility")
+        self.assertEqual(len(manager.scan_antigravity(self.brain_root)), 1)
+        self.assertEqual(len(manager.scan_vscode_copilot(self.vscode_root)), 1)
+        self.assertEqual(len(manager.scan_copilot_cli(self.cli_root)), 1)
+        self.assertTrue(any("malformed selected source files skipped" in note
+                            for note in manager._source_diagnostics))
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+             patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
+            self.assertEqual(len(_harvest_antigravity_sessions()), 1)
+            self.assertEqual(len(_harvest_copilot_sessions()), 1)
+            self.assertEqual(len(discover_antigravity_sessions()), 1)
+        legacy = UnifiedConversationHub(data_dir=self.root / "legacy-compatibility")
+        with patch.object(legacy, "_get_hub_api", return_value=None):
+            self.assertEqual(len(legacy.scan_antigravity(self.brain_root)), 1)
+            self.assertEqual(len(legacy.scan_vscode_copilot(self.vscode_root)), 1)
+            self.assertEqual(len(legacy.scan_copilot_cli(self.cli_root)), 1)
+
     def test_incompatible_installed_hub_does_not_fall_back(self) -> None:
         hub = UnifiedConversationHub(data_dir=self.root / "dncp-data")
         incompatible = ConversationLibraryError(
@@ -356,6 +1002,50 @@ class ConversationHubAdapterTests(unittest.TestCase):
         with patch("control_plane.conversations._configured_hub_api", side_effect=incompatible):
             with self.assertRaises(ConversationLibraryError):
                 hub.scan_antigravity(self.brain_root)
+
+    def test_tolerant_source_reads_keep_caps_and_resource_failures_fatal(self) -> None:
+        try:
+            api, info = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for bound coverage")
+            raise
+        bad_ag = self.brain_root / "new-bad" / ".system_generated" / "logs" / "transcript.jsonl"
+        bad_vscode = self.vscode_root / "workspace-a" / "chatSessions" / "new-bad.jsonl"
+        bad_cli = self.cli_root / "new-bad" / "events.jsonl"
+        for path in (bad_ag, bad_vscode, bad_cli):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{malformed synthetic}\n", encoding="utf-8")
+            os.utime(path, (1_900_000_000, 1_900_000_000))
+        os.utime(bad_ag.parents[2], (1_900_000_000, 1_900_000_000))
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", return_value=(api, info)):
+            for kind, root in (
+                ("antigravity", self.brain_root),
+                ("vscode-copilot", self.vscode_root),
+                ("copilot-cli", self.cli_root),
+            ):
+                with self.subTest(source=kind):
+                    selected, diagnostics, _ = read_local_sessions(
+                        kind, root, archive_key="no-refill", max_sessions=1,
+                        selection_policy="directory-first" if kind == "antigravity" else None,
+                    )
+                    self.assertEqual(selected, [])
+                    self.assertTrue(any("1 selected slots; no cap refill" in note for note in diagnostics))
+                    source_globals = api.read_antigravity_sessions.__globals__
+                    for limit, value in (
+                        ("MAX_SOURCE_FILE_BYTES", 8),
+                        ("MAX_SOURCE_ROOT_BYTES", 8),
+                        ("MAX_EVENTS_PER_SESSION", 1),
+                    ):
+                        with self.subTest(limit=limit), patch.dict(source_globals, {limit: value}):
+                            with self.assertRaises(ValueError):
+                                read_local_sessions(kind, root, archive_key="fatal-bound", max_sessions=25)
+            transcript = self.session_dir / ".system_generated" / "logs" / "transcript.jsonl"
+            with patch.dict(api.read_antigravity_transcript.__globals__, {"MAX_SOURCE_FILE_BYTES": 8}), \
+                 patch("control_plane.handoff._configured_hub_api", return_value=(api, info)), \
+                 self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+                self.assertEqual(parse_session_turns(transcript), [])
+            self.assertTrue(any("could not read" in note for note in captured.output))
 
     def test_base_install_fallbacks_remain_explicit_and_synthetic(self) -> None:
         unavailable = ConversationLibraryError(
@@ -517,8 +1207,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.4",
-                "revision": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2",
+                "version": "0.1.6",
+                "revision": "ea8d608b00aa1900132b2d2f33d90561143fa471",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -528,8 +1218,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.4", rendered)
-        self.assertIn("11eb07caf7ce45eb35111c9ef017ad9c21de0ad2", rendered)
+        self.assertIn("conversation-hub 0.1.6", rendered)
+        self.assertIn("ea8d608b00aa1900132b2d2f33d90561143fa471", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)

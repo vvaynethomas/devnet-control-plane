@@ -125,10 +125,10 @@ evidence. The process caches its checked core, so reload after intentional updat
 
 ## Combined optional consumers
 
-The `conversation-hub` extra independently pins v0.1.4 at
-`11eb07caf7ce45eb35111c9ef017ad9c21de0ad2`, marker-gated to Python >=3.12;
+The `conversation-hub` extra independently pins v0.1.6 at
+`ea8d608b00aa1900132b2d2f33d90561143fa471`, marker-gated to Python >=3.12;
 its published wheel SHA-256 is
-`245d47c9df93567f65b8f0ae274484b9fca89374173238eb3ef500161fc65e94`.
+`bb0da00debc8c13b166030b14eb26e3100afff65318ca1dd7a3b68dbc8448c16`.
 It does not install Material Core, and the `material` extra does not install Hub.
 Install both explicitly on Python >=3.12 with:
 
