@@ -166,6 +166,73 @@ class ConversationHubAdapterTests(unittest.TestCase):
             self.assertEqual(transcript_path.parent.parent.parent.name, session_name)
             self.assertEqual(turns_by_session[session_name][0]["user_prompt"], prompt)
 
+    def _add_fabric_path_contract_sources(self) -> set[str]:
+        names = {"session%20literal", "session with space"}
+        for name in names:
+            transcript = self.brain_root / name / ".system_generated" / "logs" / "transcript.jsonl"
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text(
+                json.dumps({
+                    "type": "USER_INPUT",
+                    "content": f"<USER_REQUEST>synthetic Antigravity path {name}</USER_REQUEST>",
+                    "created_at": "2025-01-01T10:00:00Z",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            cli_events = self.cli_root / name / "events.jsonl"
+            cli_events.parent.mkdir(parents=True)
+            cli_events.write_text(
+                json.dumps({
+                    "timestamp": "2025-01-01T10:00:00Z",
+                    "role": "user",
+                    "message": f"synthetic Copilot path {name} has sufficiently long content",
+                }) + "\n",
+                encoding="utf-8",
+            )
+        return names
+
+    def _assert_fabric_absolute_paths_exist(self, names: set[str]) -> None:
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            antigravity = _harvest_antigravity_sessions()
+            copilot = _harvest_copilot_sessions()
+        ag_paths = {
+            Path(record["abs_path"]).parents[2].name: record
+            for record in antigravity
+            if Path(record["abs_path"]).parents[2].name in names
+        }
+        cli_paths = {
+            Path(record["abs_path"]).parent.name: record
+            for record in copilot
+            if Path(record["abs_path"]).parent.name in names
+        }
+        self.assertEqual(set(ag_paths), names)
+        self.assertEqual(set(cli_paths), names)
+        for name in names:
+            with self.subTest(source="Antigravity", session=name):
+                path = Path(ag_paths[name]["abs_path"])
+                self.assertTrue(path.is_absolute())
+                self.assertTrue(path.is_file())
+            with self.subTest(source="Copilot CLI", session=name):
+                path = Path(cli_paths[name]["abs_path"])
+                self.assertTrue(path.is_absolute())
+                self.assertTrue(path.is_file())
+
+    def test_fabric_abs_paths_are_filesystem_paths_with_hub(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for source-adapter integration coverage")
+            raise
+        names = self._add_fabric_path_contract_sources()
+        self._assert_fabric_absolute_paths_exist(names)
+
+    def test_fabric_abs_paths_are_filesystem_paths_without_hub(self) -> None:
+        names = self._add_fabric_path_contract_sources()
+        unavailable = ConversationLibraryError("hub_unavailable", "optional package unavailable", 503)
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable):
+            self._assert_fabric_absolute_paths_exist(names)
+
     def test_base_install_keeps_legacy_readers_for_explicit_synthetic_sources(self) -> None:
         hub = UnifiedConversationHub(data_dir=self.root / "dncp-data")
         with patch.object(hub, "_get_hub_api", return_value=None):

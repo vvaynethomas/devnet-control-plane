@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+from urllib.request import url2pathname
 
 from .conversation_library import ConversationHubAPI, _configured_hub_api
 
@@ -13,6 +15,13 @@ _SOURCE_READERS = {
     "vscode-copilot": ("read_vscode_copilot_sessions", 500, "VSC-", "VS Code GitHub Copilot", "GitHub Copilot"),
     "copilot-cli": ("read_copilot_cli_sessions", 500, "CLI-", "GitHub Copilot CLI", "Copilot CLI"),
 }
+
+
+def local_source_path(uri: str) -> Path:
+    parsed = urlsplit(uri)
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        raise ValueError("Conversation Hub returned a non-local source URI for a local file")
+    return Path(url2pathname(parsed.path))
 
 
 def estimate_tokens(text: str) -> int:
