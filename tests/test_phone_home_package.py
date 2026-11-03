@@ -27,10 +27,13 @@ class TestPhoneHomePackage(unittest.TestCase):
         built = release.build_release(self.root / "dist")
         with zipfile.ZipFile(built["wheel"]) as archive:
             self.assertIn("control_plane/registry/interaction_frames.json", archive.namelist())
+            self.assertIn("material_core/__init__.py", archive.namelist())
+            self.assertIn("material_core/supplied.py", archive.namelist())
             metadata = archive.read("devnet_control_plane-0.1.0.dist-info/METADATA").decode()
             self.assertIn("Provides-Extra: mcp", metadata)
         with tarfile.open(built["sdist"]) as archive:
             self.assertTrue(any(n.endswith("/registry/interaction_frames.json") for n in archive.getnames()))
+            self.assertTrue(any(n.endswith("/material_core/supplied.py") for n in archive.getnames()))
         # Also build the declared setuptools path from the sdist, without network isolation.
         wheels = self.root / "sdist-wheel"
         wheels.mkdir()
@@ -49,6 +52,8 @@ class TestPhoneHomePackage(unittest.TestCase):
                     self.assertIn("devnet 0.1.0", self.run_command([str(cli), "--version"]).stdout)
                     self.run_command([str(cli), "--help"])
                 probe = (
+                    "from material_core import digest_material; "
+                    "assert digest_material(b'Goal: reuse',name='note.txt',format='text').material.revision; "
                     "from control_plane import REGISTRY_PATH; assert REGISTRY_PATH.is_file(); "
                     "from control_plane.ui import ControlPlaneWorkbench, serve_control_plane; "
                     "from pathlib import Path; import urllib.request, threading, json; "

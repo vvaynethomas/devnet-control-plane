@@ -17,8 +17,10 @@ import threading
 from typing import Any
 
 from . import DEFAULT_DATA_DIR, PACKAGE_VERSION
-from .digester import Digestion, MaterialReference, NOTICE, REVIEW_ACTIONS
-from .fabric import FabricIndex, SECRET_RE, redact_secrets
+from material_core.contract import Digestion, MaterialReference, NOTICE, REVIEW_ACTIONS
+from material_core.safety import SECRET_RE
+
+from .fabric import FabricIndex, redact_secrets
 
 EXTRACTOR = "dncp-repository-static-v2"
 MAX_TREE_BYTES = 1024 * 1024

@@ -1,18 +1,26 @@
 # Digester contract v1
 
-`control_plane\digester.py` defines the repo-agnostic
-`Digester.digest(MaterialReference, target="") -> Digestion` protocol.
-It extracts provisional evidence only. Registration, explicit invocation,
-inventory comparison, human dispositions and persistence are outside it.
-Explicitly supplied text/Markdown, CSV, HTML, Python and ZIP use
-`SuppliedMaterialDigester` in `control_plane\material_ingestion.py`; see
-[coverage and limits](material-ingestion.md). No router or concierge is implemented.
+`material_core\contract.py` defines the repo-agnostic
+`Digester.digest(MaterialReference, target="") -> Digestion` contract;
+`control_plane\digester.py` re-exports it for compatibility. The
+`material_core` package contains deterministic processing and shared evidence
+types only. `material_core\supplied.py` implements the explicit-byte adapters;
+see [coverage and limits](material-ingestion.md). It does not import DNCP,
+discover sources, access the network, execute input, or persist results.
+
+DNCP's `control_plane\material_ingestion.py` validates phone-home payloads and
+delegates to that core. Phone-home owns submission metadata, routing and inbox
+storage. This source-level consumer boundary is included in the DNCP distribution;
+it is not a separately published product or completed ownership handover. No
+router or concierge is implemented.
 
 The repository implementation is `RepositoryDigester` in
 `control_plane\repo_metabolizer.py`. `RepositoryMetabolizer` supplies opt-in
 registration and explicit scans through the existing `devnet digest` CLI.
 It retains only consent metadata in `digester.sqlite`, not scan bundles, review
-events or source copies. There is no second CLI or competing review store.
+events or source copies. This repository path is intentionally DNCP-owned: it
+uses Git subprocesses to read a pinned committed revision and is not the pure
+byte-processing API. There is no second CLI or competing review store.
 
 ## Shared result
 

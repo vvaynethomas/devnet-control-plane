@@ -45,7 +45,7 @@ devnet-control-plane = "control_plane.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["control_plane*"]
+include = ["control_plane*", "material_core*"]
 
 [tool.setuptools.package-data]
 control_plane = ["registry/*.json"]

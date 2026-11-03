@@ -48,13 +48,14 @@ def get_git_commit(repo_dir: Path) -> str:
         return "unversioned"
 
 
-def collect_source_files(pkg_dir: Path) -> list[tuple[str, bytes]]:
-    """Collect all source files in the control_plane package directory."""
+def collect_source_files(pkg_dir: Path, additional_packages: tuple[Path, ...] = ()) -> list[tuple[str, bytes]]:
+    """Collect source files from the system-node packages."""
     files = []
-    for p in sorted(pkg_dir.rglob("*")):
-        if p.is_file() and not p.name.endswith((".pyc", ".pyo")) and "__pycache__" not in p.parts:
-            rel = p.relative_to(pkg_dir.parent).as_posix()
-            files.append((rel, p.read_bytes()))
+    for package_dir in (pkg_dir, *additional_packages):
+        for p in sorted(package_dir.rglob("*")):
+            if p.is_file() and not p.name.endswith((".pyc", ".pyo")) and "__pycache__" not in p.parts:
+                rel = p.relative_to(pkg_dir.parent).as_posix()
+                files.append((rel, p.read_bytes()))
     registry = pkg_dir.parent / "registry" / "interaction_frames.json"
     files.append(("control_plane/registry/interaction_frames.json", registry.read_bytes()))
     return files
@@ -164,7 +165,7 @@ def build_release(output_dir: Path | None = None) -> dict[str, object]:
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     pkg_dir = PROJECT_DIR / "control_plane"
-    sources = collect_source_files(pkg_dir)
+    sources = collect_source_files(pkg_dir, (PROJECT_DIR / "material_core",))
 
     source_digests = {}
     for arcname, data in sources:

@@ -269,8 +269,14 @@ text/Markdown, CSV, HTML, JSON, Python source and ZIP containers use format adap
 and the existing phone-home inbox, with **no repo opt-in, product membership,
 agent report or bilateral acceptance**. The provisional inbox is not a second
 acceptance stage; only consequential later execution/adoption/canonical promotion
-requires human approval. Raw input stays local, with no extraction, execution,
-fetching, LLM or automatic promotion.
+requires human approval. Bounded static extraction stays local; input is never
+executed or fetched, and no LLM or automatic promotion is involved.
+
+The deterministic evidence contract and supplied-byte adapters live in the
+repository-local `material_core` package. DNCP's `control_plane\material_ingestion.py`
+validates the phone-home payload and delegates to that core; phone-home still
+owns routing, receipt metadata and inbox persistence. This is a consumer boundary
+inside the DNCP distribution, not a separately released product or handover.
 
 ```powershell
 devnet phone-home ingest 'C:\inputs\notes.md' --target reuse
@@ -331,10 +337,12 @@ failure rather than remote ingestion. No LLM, extractor download, external
 transmission, or paid service is needed. Detection is incomplete: review bundles
 locally and do not transmit potentially sensitive evidence indiscriminately.
 
-The shared [material-neutral contract](docs/digester-contract.md) lives in
-`control_plane\digester.py`: `digest(MaterialReference, target) -> Digestion`
-performs extraction only. `control_plane\repo_metabolizer.py` supplies the single
-repository implementation plus opt-in orchestration and cached comparison.
+The shared [material-neutral contract](docs/digester-contract.md) is implemented
+in `material_core\contract.py` and re-exported by `control_plane\digester.py` for
+compatibility. `material_core\supplied.py` implements deterministic supplied-byte
+extraction without DNCP orchestration. `control_plane\repo_metabolizer.py` remains
+the Git-aware repository extractor plus opt-in registration and cached comparison;
+it reads pinned Git objects and is not part of the pure byte-processing API.
 There is no separate `metabolizer` CLI or competing scan/review database.
 
 The versioned **material-neutral bundle** includes the repository input reference,
