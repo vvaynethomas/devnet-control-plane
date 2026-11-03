@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import url2pathname
@@ -18,9 +20,20 @@ _SOURCE_READERS = {
 
 
 def local_source_path(uri: str) -> Path:
+    """Convert a selected local file URI, including Windows UNC paths, to a filesystem path."""
     parsed = urlsplit(uri)
-    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+    if parsed.scheme != "file":
         raise ValueError("Conversation Hub returned a non-local source URI for a local file")
+    if parsed.netloc not in {"", "localhost"}:
+        if (
+            os.name != "nt"
+            or parsed.username
+            or parsed.password
+            or parsed.port
+            or not re.fullmatch(r"[A-Za-z0-9._-]+", parsed.netloc)
+        ):
+            raise ValueError("Conversation Hub returned a non-local source URI for a local file")
+        return Path(f"\\\\{parsed.netloc}{url2pathname(parsed.path)}")
     return Path(url2pathname(parsed.path))
 
 
@@ -102,9 +115,10 @@ def _session_from_conversation(
             estimate_tokens(text) for turn in turns for text in turn["assistant_responses"]
         )
         turn_count = len(turns)
-        source_path = source_record.get("source_path") or conversation.provenance.export_uri
-        if not isinstance(source_path, str):
-            source_path = conversation.provenance.export_uri
+        source_uri = source_record.get("source_path") or conversation.provenance.export_uri
+        if not isinstance(source_uri, str):
+            source_uri = conversation.provenance.export_uri
+        source_path = str(local_source_path(source_uri))
 
     return {
         "session_id": session_id,
@@ -121,6 +135,7 @@ def _session_from_conversation(
         "est_output_tokens": output_tokens,
         "est_total_tokens": input_tokens + output_tokens,
         "source_path": source_path,
+        **({"source_uri": source_uri} if source_kind != "legacy" else {}),
     }
 
 

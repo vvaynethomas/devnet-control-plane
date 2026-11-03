@@ -83,7 +83,7 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             if not user_turns:
                 continue
             last_turn_time = user_turns[-1]["timestamp"]
-            source_path = local_source_path(session["source_path"])
+            source_path = local_source_path(session["source_uri"])
             last_turn_time = last_turn_time[:19] if last_turn_time else ""
             sessions.append({
                 "session_id": session["full_session_id"],
@@ -180,7 +180,7 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
         for item in diagnostics:
             logger.warning("Antigravity handoff source adapter: %s", item)
         selected = next(
-            (session for session in sessions if local_source_path(session["source_path"]) == selected_path),
+            (session for session in sessions if local_source_path(session["source_uri"]) == selected_path),
             None,
         )
         if selected is None:

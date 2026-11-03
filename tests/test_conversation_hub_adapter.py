@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from pathlib import PureWindowsPath
 import sqlite3
 import tempfile
 import unittest
@@ -8,7 +9,9 @@ from contextlib import closing
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from control_plane.conversation_hub_adapter import read_legacy_sessions, read_local_sessions
+from control_plane.conversation_hub_adapter import (
+    local_source_path, read_legacy_sessions, read_local_sessions,
+)
 from control_plane.handoff import (
     compile_context_handoff, discover_antigravity_sessions, parse_session_turns,
 )
@@ -166,6 +169,104 @@ class ConversationHubAdapterTests(unittest.TestCase):
             self.assertEqual(transcript_path.parent.parent.parent.name, session_name)
             self.assertEqual(turns_by_session[session_name][0]["user_prompt"], prompt)
 
+    @unittest.skipUnless(os.name == "nt", "Windows UNC URI mapping is platform-specific")
+    def test_local_source_path_preserves_synthetic_windows_unc_uri(self) -> None:
+        expected = Path(r"\\server\share\brain\session%20name\transcript.jsonl")
+        uri = expected.as_uri()
+        converted = local_source_path(uri)
+
+        self.assertEqual(PureWindowsPath(converted), expected)
+        self.assertEqual(converted.anchor, "\\\\server\\share\\")
+
+    def _add_local_path_parity_sources(self) -> dict[str, dict[str, Path]]:
+        names = ("session%20literal", "session with space")
+        sources: dict[str, dict[str, Path]] = {}
+        for name in names:
+            ag_path = self.brain_root / name / ".system_generated" / "logs" / "transcript.jsonl"
+            ag_path.parent.mkdir(parents=True)
+            ag_path.write_text(
+                json.dumps({
+                    "type": "USER_INPUT",
+                    "content": f"<USER_REQUEST>synthetic Antigravity {name}</USER_REQUEST>",
+                    "created_at": "2025-01-01T10:00:00Z",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            vscode_path = self.vscode_root / "workspace-paths" / "chatSessions" / f"{name}.jsonl"
+            vscode_path.parent.mkdir(parents=True, exist_ok=True)
+            vscode_path.write_text(
+                json.dumps({"v": {"creationDate": 1735725600000, "inputText": f"synthetic VS Code {name}"}})
+                + "\n",
+                encoding="utf-8",
+            )
+
+            cli_path = self.cli_root / name / "events.jsonl"
+            cli_path.parent.mkdir(parents=True)
+            cli_path.write_text(
+                json.dumps({
+                    "timestamp": "2025-01-01T10:00:00Z",
+                    "role": "user",
+                    "message": f"synthetic Copilot CLI path {name} has sufficient content",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            sources[name] = {
+                "antigravity": ag_path.resolve(),
+                "vscode-copilot": vscode_path.resolve(),
+                "copilot-cli": cli_path.resolve(),
+            }
+        return sources
+
+    def _assert_local_path_parity(
+        self,
+        sources: dict[str, dict[str, Path]],
+        *,
+        use_hub: bool,
+    ) -> None:
+        hub = UnifiedConversationHub(data_dir=self.root / f"dncp-data-{use_hub}")
+        if not use_hub:
+            with patch.object(hub, "_get_hub_api", return_value=None):
+                by_kind = {
+                    "antigravity": hub.scan_antigravity(self.brain_root),
+                    "vscode-copilot": hub.scan_vscode_copilot(self.vscode_root),
+                    "copilot-cli": hub.scan_copilot_cli(self.cli_root),
+                }
+        else:
+            by_kind = {
+                "antigravity": hub.scan_antigravity(self.brain_root),
+                "vscode-copilot": hub.scan_vscode_copilot(self.vscode_root),
+                "copilot-cli": hub.scan_copilot_cli(self.cli_root),
+            }
+        for name, paths_by_kind in sources.items():
+            for kind, expected_path in paths_by_kind.items():
+                with self.subTest(hub=use_hub, source=kind, path=expected_path):
+                    session = next(
+                        item for item in by_kind[kind]
+                        if item["source_path"] == str(expected_path)
+                    )
+                    self.assertTrue(Path(session["source_path"]).is_absolute())
+                    self.assertTrue(Path(session["source_path"]).is_file())
+                    if use_hub:
+                        self.assertTrue(session["source_uri"].startswith("file://"))
+                        self.assertEqual(local_source_path(session["source_uri"]), expected_path)
+
+    def test_local_source_paths_match_legacy_with_optional_hub(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for source-adapter integration coverage")
+            raise
+        sources = self._add_local_path_parity_sources()
+        self._assert_local_path_parity(sources, use_hub=True)
+
+    def test_local_source_paths_match_legacy_without_optional_hub(self) -> None:
+        sources = self._add_local_path_parity_sources()
+        unavailable = ConversationLibraryError("hub_unavailable", "optional package unavailable", 503)
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable):
+            self._assert_local_path_parity(sources, use_hub=False)
+
     def _add_fabric_path_contract_sources(self) -> set[str]:
         names = {"session%20literal", "session with space"}
         for name in names:
@@ -216,6 +317,7 @@ class ConversationHubAdapterTests(unittest.TestCase):
                 path = Path(cli_paths[name]["abs_path"])
                 self.assertTrue(path.is_absolute())
                 self.assertTrue(path.is_file())
+                self.assertEqual(cli_paths[name]["path"], str(path))
 
     def test_fabric_abs_paths_are_filesystem_paths_with_hub(self) -> None:
         try:
