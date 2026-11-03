@@ -6,7 +6,10 @@ The reusable deterministic processing contract is owned by the private
 `material_core\supplied.py`. The `material_core` package processes explicit bytes
 only; it does not depend on DNCP services or perform discovery, network access,
 execution, or persistence. It is released separately as v0.1.0; DNCP contains
-no source copy and pins commit `108fe9f309005ac7593fd640fce54bc196262198`.
+no source copy and its optional `material` extra pins commit
+`108fe9f309005ac7593fd640fce54bc196262198`. The public base works without it;
+material-dependent operations return explicit installation errors (status 503)
+without accepting or discarding the input.
 Independent licensing and ownership approval remain undecided.
 DNCP's `control_plane\material_ingestion.py` is the payload adapter: it validates
 the intake schema, decodes text/base64 and delegates to `digest_material`.

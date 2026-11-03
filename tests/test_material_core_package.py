@@ -62,6 +62,9 @@ class TestMaterialCorePackage(unittest.TestCase):
                 check=True, capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0)
+            from control_plane.material_capability import FORMATS
+            from material_core import FORMATS as core_formats
+            self.assertEqual(FORMATS, core_formats)
             manifest_path = Path(artifacts["manifest"])
             manifest["source_commit"] = "0" * 40
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

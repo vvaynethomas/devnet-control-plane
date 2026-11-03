@@ -3,7 +3,7 @@
 **Status audit: 2026-11-01**, against `2c501ce` and freshly fetched `origin/main` (no divergence before this documentation change). The latest repository commit is dated 2026-11-01; that is not evidence that upstream development stopped. Release dates, acceptance, and any publication outside GitHub are unknown. No Git tags or GitHub Releases were listed at audit time.
 
 ## v0.1.0 — Foundational Nervous System (Declared Baseline; Acceptance Unverified)
-- Standalone Python package (`devnet-control-plane`) consuming the separately released private `material-core` v0.1.0 at immutable commit `108fe9f309005ac7593fd640fce54bc196262198`. CLI and registry have been restored; DNCP release publication and operator acceptance remain unverified.
+- Standalone Python package (`devnet-control-plane`) with a dependency-free public base and optional `material` extra consuming private `material-core` v0.1.0 at immutable commit `108fe9f309005ac7593fd640fce54bc196262198`. CLI and registry have been restored; DNCP release publication and operator acceptance remain unverified.
 - 6-Pillar Loopback Web Workbench implementation on `http://127.0.0.1:8780/`; end-to-end acceptance remains outstanding.
 - Portfolio scanning across repositories discovered in `GitHub-Repos` (count depends on the local network, not a fixed 22).
 - Cross-repo backlog aggregation with PAT-0001 deterministic router.

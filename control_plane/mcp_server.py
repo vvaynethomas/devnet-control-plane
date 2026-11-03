@@ -7,7 +7,7 @@ import sqlite3
 from typing import Any
 
 from .phone_home import KINDS, PhoneHome, PhoneHomeError
-from .material_ingestion import FORMATS
+from .material_capability import FORMATS
 
 
 def tool_contracts() -> list[dict[str, Any]]:

@@ -1,7 +1,8 @@
 """Deterministic System Node Release Builder (ALM-006 / DEC-0015 / ART-0008).
 
 Builds PEP 427 pure-Python wheels, source archives, and SHA-256 manifests using
-the standard library, against an explicitly supplied local material-core wheel.
+the standard library. Material support is an optional extra; full offline
+builds can verify an explicitly supplied local material-core wheel.
 """
 
 from __future__ import annotations
@@ -114,7 +115,8 @@ Summary: Autonomous Development Network Control Plane and Interaction Frame Lab
 Author: Development Network Operator
 License: MIT
 Requires-Python: >=3.10
-Requires-Dist: {MATERIAL_CORE_REQUIREMENT}
+Provides-Extra: material
+Requires-Dist: {MATERIAL_CORE_REQUIREMENT} ; extra == "material"
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -200,9 +202,9 @@ def io_bytes(data: bytes):
     return io.BytesIO(data)
 
 
-def build_release(output_dir: Path, material_core_wheel: Path) -> dict[str, object]:
-    """Build DNCP against an explicit, verified local material-core wheel."""
-    core_artifact = verify_material_core_wheel(material_core_wheel)
+def build_release(output_dir: Path, material_core_wheel: Path | None = None) -> dict[str, object]:
+    """Build public DNCP, optionally verifying a pinned core for offline consumers."""
+    core_artifact = verify_material_core_wheel(material_core_wheel) if material_core_wheel is not None else None
     dist_dir = output_dir
     dist_dir.mkdir(parents=True, exist_ok=True)
 
@@ -246,8 +248,8 @@ def build_release(output_dir: Path, material_core_wheel: Path) -> dict[str, obje
         "deliverable_id": "ART-0008",
         "runtime_requirements": {
             "python": ">=3.10",
-            "dependencies": [MATERIAL_CORE_REQUIREMENT],
-            "optional_extras": ["openai>=1.0.0", "mcp>=1.30,<2"],
+            "dependencies": [],
+            "optional_extras": [MATERIAL_CORE_REQUIREMENT, "openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "material_core_artifact": core_artifact,
         "material_core_source_commit": MATERIAL_CORE_COMMIT,
@@ -278,7 +280,7 @@ def build_release(output_dir: Path, material_core_wheel: Path) -> dict[str, obje
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--material-core-wheel", type=Path, required=True)
+    parser.add_argument("--material-core-wheel", type=Path)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "dist")
     args = parser.parse_args()
     out = build_release(args.output_dir, args.material_core_wheel)

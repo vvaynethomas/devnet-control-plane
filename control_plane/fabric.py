@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEFAULT_DATA_DIR, FACTORY_ROOT
-from material_core.safety import SECRET_RE
+from .safety import SECRET_RE
 
 ID_RE = re.compile(r"\b(SRC|FND|PAT|DEC|PRM|WF|RUN|SKL|PRJ|ART|BL)-\d{4}\b")
 

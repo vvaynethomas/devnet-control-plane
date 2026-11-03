@@ -23,6 +23,61 @@ class TestPhoneHomePackage(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 
+    def test_public_base_install_without_core_or_credentials(self) -> None:
+        built = release.build_release(self.root / "base-dist")
+        self.assertIsNone(built["material_core"])
+        standard = self.root / "base-standard"
+        self.run_command([sys.executable, "-m", "pip", "wheel", "--no-index", "--no-deps",
+                          "--no-build-isolation", "--wheel-dir", str(standard), built["sdist"]])
+        for index, wheel in enumerate((Path(built["wheel"]), next(standard.glob("*.whl")))):
+            environment = self.root / f"base-env-{index}"
+            venv.EnvBuilder(with_pip=True).create(environment)
+            scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
+            python = scripts / ("python.exe" if sys.platform == "win32" else "python")
+            with zipfile.ZipFile(wheel) as archive:
+                metadata = archive.read("devnet_control_plane-0.1.0.dist-info/METADATA").decode()
+                requirement = next(line for line in metadata.splitlines()
+                                   if line.startswith("Requires-Dist: material-core"))
+                self.assertIn(release.MATERIAL_CORE_COMMIT, requirement)
+                self.assertIn('extra == "material"', requirement)
+            self.run_command([str(python), "-m", "pip", "install", "--no-index", str(wheel)])
+            self.run_command([str(python), "-m", "pip", "check"])
+            self.run_command([str(python), "-I", "-c",
+                              "import importlib.util; assert importlib.util.find_spec('material_core') is None; "
+                              "from control_plane.fabric import FabricIndex; "
+                              "from control_plane.mcp_server import tool_contracts; assert tool_contracts(); "
+                              "from control_plane.ui import ControlPlaneWorkbench; "
+                              "from control_plane.phone_home import validate_submission; "
+                              "from control_plane.material_capability import MaterialCapabilityError; "
+                              "\ntry: validate_submission({'kind':'material','material':{}})\n"
+                              "except MaterialCapabilityError as e:\n"
+                              " assert e.status == 503; assert '[material]' in str(e)\n"
+                              "else: raise AssertionError('material must fail, not be discarded')"])
+            for alias in ("devnet", "devnet-control-plane"):
+                executable = scripts / (alias + (".exe" if sys.platform == "win32" else ""))
+                self.run_command([str(executable), "--version"])
+                self.run_command([str(executable), "--help"])
+            probe = (
+                "from control_plane.ui import ControlPlaneWorkbench, serve_control_plane; "
+                "from pathlib import Path; import threading,urllib.request,json,urllib.error; "
+                f"wb=ControlPlaneWorkbench(Path({str(self.factory)!r}),Path({str(self.network)!r}),Path({str(self.data)!r})); "
+                "s=serve_control_plane(port=0,workbench=wb); t=threading.Thread(target=s.serve_forever); t.start(); "
+                "base=f'http://127.0.0.1:{s.server_port}'; "
+                "\ntry:\n"
+                " assert json.load(urllib.request.urlopen(base+'/api/health'))['ok']\n"
+                " assert json.load(urllib.request.urlopen(base+'/api/phone-home/check?q=sqlite'))['decision_ladder']\n"
+                " before=wb.phone_home.list()\n"
+                " req=urllib.request.Request(base+'/api/phone-home/submissions', b'{\"kind\":\"material\",\"material\":{}}',"
+                " {'Content-Type':'application/json'},method='POST')\n"
+                " try: urllib.request.urlopen(req)\n"
+                " except urllib.error.HTTPError as e:\n"
+                "  assert e.code==503; assert '[material]' in json.load(e)['error']\n"
+                " else: raise AssertionError('expected explicit refusal')\n"
+                " assert wb.phone_home.list()==before\n"
+                "finally: s.shutdown(); s.server_close(); t.join()\n"
+            )
+            self.run_command([str(python), "-I", "-c", probe])
+
     def test_wheel_and_sdist_installed_entrypoints_registry_and_api(self) -> None:
         core_dir = self.root / "material-core"
         core = build_material_core.build_release(core_dir)
@@ -57,7 +112,8 @@ class TestPhoneHomePackage(unittest.TestCase):
                     env={**os.environ, "PYTHONPATH": ""},
                 )
                 self.assertNotEqual(missing.returncode, 0)
-                self.assertIn("material_core", missing.stderr)
+                self.assertIn("Material capability is not installed", missing.stderr)
+                self.assertIn("devnet-control-plane[material]", missing.stderr)
                 self.run_command([str(python), "-m", "pip", "install", "--no-index",
                                   str(core["wheel"])])
                 self.run_command([str(python), "-m", "pip", "check"])

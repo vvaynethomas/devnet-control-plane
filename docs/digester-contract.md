@@ -9,6 +9,10 @@ types only. `material_core\supplied.py` implements the explicit-byte adapters;
 see [coverage and limits](material-ingestion.md). It does not import DNCP,
 discover sources, access the network, execute input, or persist results.
 
+This contract and repository digestion require DNCP's optional `material`
+extra. They are not imported by public-base Fabric, CLI startup, or MCP schemas;
+missing/incompatible cores fail with installation guidance, not a fallback.
+
 DNCP's `control_plane\material_ingestion.py` validates phone-home payloads and
 delegates to that core. Phone-home owns submission metadata, routing and inbox
 storage. This source-level consumer boundary is included in the DNCP distribution;

@@ -55,16 +55,15 @@ one canonical incubator root, network root, and shared writable runtime director
 for all clients. DNCP never writes knowledge records to that incubator.
 
 ### 1. Installation
-The declared package requires Python >=3.10 and external `material-core` 0.1.0
-pinned to commit `108fe9f309005ac7593fd640fce54bc196262198`;
-editable/source builds use `setuptools>=61.0` and
-`wheel`. Build the core artifact first as documented in
-[the package handover](docs/material-core-package.md), then install/build DNCP
-with the preinstalled core wheel. The explicit fetch requires authenticated
-GitHub access; subsequent artifact installs can be offline.
+The public base package requires Python >=3.10 and no runtime dependencies or
+private credentials. Editable/source builds use locally available
+`setuptools>=61.0` and `wheel`. Material ingestion and repository digestion
+require the optional `material` extra, which pins private `material-core` 0.1.0
+to commit `108fe9f309005ac7593fd640fce54bc196262198`.
+See [the package handover](docs/material-core-package.md) for authenticated
+full-feature installation and offline artifact workflows.
 ```bash
-pip install --no-index dist\material-core\material_core-0.1.0-py3-none-any.whl
-pip install --no-index --no-build-isolation --no-deps -e .
+pip install --no-index --no-build-isolation -e .
 ```
 
 Verify CLI installation:
@@ -449,8 +448,10 @@ runtime import from a sibling checkout. No chat code is moved/refactored here.
 ## Packaging and Release
 
 `release.py` uses only the Python standard library to construct local artifacts
-declared as 0.1.0 under **DEC-0015**. It requires an explicitly built
-`material-core==0.1.0` wheel and validates its identity; it never embeds the core:
+declared as 0.1.0 under **DEC-0015**. Base builds need no core artifact
+(`python release.py --output-dir dist\devnet`). For material-capable offline
+installation, explicitly fetch/build the pinned core and validate its identity;
+DNCP never embeds it:
 ```bash
 python build_material_core.py --output-dir dist\material-core
 python release.py --material-core-wheel dist\material-core\material_core-0.1.0-py3-none-any.whl --output-dir dist\devnet

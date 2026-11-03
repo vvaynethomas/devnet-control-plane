@@ -4,7 +4,8 @@ The independent private repository is
 [vvaynethomas/material-core](https://github.com/vvaynethomas/material-core).
 [Release v0.1.0](https://github.com/vvaynethomas/material-core/releases/tag/v0.1.0)
 points to `108fe9f309005ac7593fd640fce54bc196262198`. DNCP's standard metadata
-and custom wheel metadata use the immutable direct requirement:
+and custom wheel metadata expose the immutable direct requirement only in the
+optional `material` extra:
 
 ```text
 material-core @ git+https://github.com/vvaynethomas/material-core@108fe9f309005ac7593fd640fce54bc196262198
@@ -14,7 +15,23 @@ The repository contains only the Python package, standalone tests, package
 metadata, README and CHANGELOG. There is no DNCP registry, orchestration, UI,
 storage, discovery, or repository-scanning dependency. DNCP no longer includes
 the `material_core` sources; it retains its payload adapter and checks core
-version 0.1.0 explicitly.
+version 0.1.0 explicitly. The public base package has no runtime dependencies
+and needs no private credentials. Fabric credential filtering and MCP schema
+description are DNCP-owned and independent of the processor.
+
+## Public base installation
+
+```powershell
+python -m pip install --no-index --no-build-isolation .
+python release.py --output-dir dist\devnet
+python -m pip install --no-index dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
+```
+
+Source builds require locally installed setuptools/wheel. CLI help/version,
+UI health, Fabric and non-material phone-home operations work without the
+core. Material submission/CLI ingestion and repository digestion require the
+extra; unavailable or incompatible processors produce actionable errors
+(HTTP/MCP status 503) without discarding input or writing a failed submission.
 
 ## Authenticated installation
 
@@ -22,7 +39,7 @@ Use an authenticated Git credential helper, never a token embedded in a URL:
 
 ```powershell
 python -m pip install git+https://github.com/vvaynethomas/material-core@v0.1.0
-python -m pip install .
+python -m pip install ".[material]"
 ```
 
 The tag command is a convenience smoke check; DNCP pins the full commit rather
@@ -48,10 +65,11 @@ python -m pip check
 
 For editable offline DNCP installation, preinstall that core wheel, then use
 `python -m pip install --no-index --no-build-isolation --no-deps -e .`.
-`--no-deps` is necessary because a direct Git requirement cannot be resolved
-from `--find-links`; `pip check` confirms the installed version, not its source
+Offline preinstallation makes the material capability available without
+requesting the extra's Git fetch. `pip check` confirms base dependencies,
+not optional capability availability or its source
 commit. The helper's manifest records the verified source commit and source/
-artifact hashes, while DNCP records the core wheel digest and immutable source
+artifact hashes, while full builds record the core wheel digest and immutable source
 requirement. Preserve those manifests for offline provenance.
 
 ## Scope and approval limits

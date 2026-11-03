@@ -6,7 +6,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 
 | Task ID | Scope and Acceptance Criteria | Depends On | Priority | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| DNCP-001 | Standalone repository graduation and dependency-bounded package distribution. | None | P1 | Open (partial; CLI/registry restored; material-core v0.1.0 published privately and commit-pinned; DNCP publication and operator acceptance remain open) |
+| DNCP-001 | Standalone repository graduation and dependency-bounded package distribution. | None | P1 | Open (partial; public base remains dependency-free; CLI/registry restored; material extra privately released and commit-pinned; DNCP publication and operator acceptance remain open) |
 | DNCP-002 | 6-Pillar Loopback Web Workbench GUI (Portfolio, Queues, Fabric, Conversations, Capabilities, Interaction Lab). | DNCP-001 | P1 | Awaiting acceptance (implementation and packaged launch present; full operator acceptance outstanding) |
 | DNCP-003 | Multi-harness Conversation Hub: auto-harvest Antigravity and VS Code Copilot, tokenomics tracking, and 1-click granular copy controls. | DNCP-002 | P1 | Open (partial; request-time scans and estimated tokens present) |
 | DNCP-004 | Historical collection scope: Live Background Watcher for Conversation Fabric. Future collection delivery moves to PRJ-0006 ACH-005; DNCP consumes its interface. | DNCP-003 | P1 | Transfer proposed (owner queue reconciliation open; watcher not implemented here) |

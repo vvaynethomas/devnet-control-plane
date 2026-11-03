@@ -17,6 +17,10 @@ import threading
 from typing import Any
 
 from . import DEFAULT_DATA_DIR, PACKAGE_VERSION
+from .material_capability import require_material_core
+
+require_material_core()
+
 from material_core.contract import Digestion, MaterialReference, NOTICE, REVIEW_ACTIONS
 from material_core.safety import SECRET_RE
 

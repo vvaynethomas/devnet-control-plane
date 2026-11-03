@@ -5,9 +5,11 @@ from __future__ import annotations
 import base64
 import binascii
 from typing import Any
+from .material_capability import require_material_core
+
+require_material_core()
 
 from material_core import (
-    __version__ as MATERIAL_CORE_VERSION,
     EXTENSIONS,
     FORMATS,
     MAX_GROUPS,
@@ -26,9 +28,6 @@ from material_core import (
     digest_material,
 )
 from material_core.safety import SECRET_RE
-
-if MATERIAL_CORE_VERSION != "0.1.0":
-    raise ImportError(f"DNCP requires material-core==0.1.0; found {MATERIAL_CORE_VERSION}")
 
 __all__ = [
     "EXTENSIONS",
