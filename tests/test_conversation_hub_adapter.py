@@ -1,9 +1,12 @@
 import json
 import os
+from html.parser import HTMLParser
 from pathlib import Path
 from pathlib import PureWindowsPath
 import sqlite3
 import tempfile
+import shutil
+import subprocess
 import unittest
 from contextlib import closing
 from types import SimpleNamespace
@@ -18,10 +21,95 @@ from control_plane.handoff import (
 from control_plane.fabric import _harvest_antigravity_sessions, _harvest_copilot_sessions
 from control_plane.conversations import UnifiedConversationHub
 from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
-from control_plane.ui import ControlPlaneWorkbench
+from control_plane.ui import ControlPlaneWorkbench, _copy_attributes
 
 
 class ConversationHubAdapterTests(unittest.TestCase):
+    def test_copy_controls_preserve_literal_content_without_javascript_interpolation(self) -> None:
+        payload = '${globalThis.copyInjected = true} "quoted" \'single\' \\path\\ `tick`\nnext\r\nline & <tag>'
+
+        class CopyButtons(HTMLParser):
+            def __init__(self) -> None:
+                super().__init__()
+                self.buttons = []
+
+            def handle_starttag(self, tag, attrs) -> None:
+                attributes = dict(attrs)
+                if tag == "button" and "data-copy-text" in attributes:
+                    self.buttons.append(attributes)
+
+        parser = CopyButtons()
+        parser.feed(f"<button {_copy_attributes(payload)}>Copy</button>")
+        self.assertEqual(json.loads(parser.buttons[0]["data-copy-text"]), payload)
+        for ordered in (False, True):
+            turn = {
+                "turn_index": 1, "user_prompt": payload,
+                "assistant_responses": [f"```text\n{payload}\n```"],
+                "tool_calls": [],
+            }
+            if ordered:
+                turn["messages"] = [
+                    {"role": "user", "source_role": "user", "content": payload},
+                    {"role": "tool", "source_role": "tool", "content": payload},
+                    {"role": "assistant", "source_role": "assistant",
+                     "content": turn["assistant_responses"][0]},
+                ]
+            session = {
+                "session_id": "CLI-synthetic", "full_session_id": "synthetic",
+                "platform": "GitHub Copilot CLI", "model": "Copilot CLI",
+                "title": "Synthetic copy controls", "workspace": "Terminal",
+                "created_date": "", "turns": [turn], "turn_count": 1,
+                "est_total_tokens": 10, "est_input_tokens": 5, "est_output_tokens": 5,
+            }
+            result = {
+                "sessions": [session],
+                "summary": {
+                    "total_sessions": 1, "filtered_sessions": 1, "total_turns": 1,
+                    "est_total_tokens": 10, "est_input_tokens": 5, "est_output_tokens": 5,
+                    "platforms": {"GitHub Copilot CLI": 1}, "models": {"Copilot CLI": 1},
+                },
+            }
+            workbench = ControlPlaneWorkbench.__new__(ControlPlaneWorkbench)
+            workbench.factory_root = self.root
+            workbench.network_root = self.root
+            workbench.conversations_hub = SimpleNamespace(get_all_conversations=lambda **_: result)
+            with patch("control_plane.handoff.compile_context_handoff", return_value={"markdown": payload}):
+                rendered = workbench.render_conversations_tab()
+            rendered_parser = CopyButtons()
+            rendered_parser.feed(rendered)
+            buttons = rendered_parser.buttons
+            self.assertEqual(len(buttons), 5)
+            copied = [json.loads(button["data-copy-text"]) for button in buttons]
+            self.assertIn(payload, copied)
+            self.assertIn(turn["assistant_responses"][0], copied)
+            full_turn = (
+                "\n\n".join(f"{message['role'].upper()}:\n{message['content']}"
+                            for message in turn["messages"])
+                if ordered else f"USER:\n{payload}\n\nASSISTANT:\n{turn['assistant_responses'][0]}"
+            )
+            self.assertIn(full_turn, copied)
+            for button in buttons:
+                self.assertEqual(button["onclick"],
+                                 "copySnippet(JSON.parse(this.dataset.copyText), this)")
+            node = shutil.which("node")
+            if node:
+                script = """
+                const fs = require('fs');
+                const buttons = JSON.parse(fs.readFileSync(0, 'utf8'));
+                const copied = [];
+                globalThis.copySnippet = text => copied.push(text);
+                for (const attrs of buttons) {
+                    new Function(attrs.onclick).call({dataset: {copyText: attrs['data-copy-text']}});
+                }
+                if (globalThis.copyInjected) throw new Error('Transcript executed');
+                process.stdout.write(JSON.stringify(copied));
+                """
+                execution = subprocess.run(
+                    [node, "-e", script], input=json.dumps(buttons), text=True,
+                    capture_output=True, check=True,
+                )
+                self.assertEqual(json.loads(execution.stdout), copied)
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

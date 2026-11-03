@@ -352,7 +352,12 @@ def read_conversation_library(
         raise
     except sqlite3.Error as exc:
         error_name = getattr(exc, "sqlite_errorname", "") or ""
-        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+        legacy_locked = (
+            not error_name
+            and isinstance(exc, sqlite3.OperationalError)
+            and str(exc) in {"database is locked", "database table is locked", "database schema is locked"}
+        )
+        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")) or legacy_locked:
             raise ConversationLibraryError(
                 "library_busy", "Library is busy or locked; retry after current access ends.", 503,
             ) from None

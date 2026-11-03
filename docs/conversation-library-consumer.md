@@ -93,6 +93,12 @@ user/assistant roles outside dialogue turns remain classifiable. CLI sessions
 without a user prompt use their first suitable redacted message as a fallback
 title, rather than fabricating a dialogue turn. Imported-chat and no-Hub
 token-estimation behavior is unchanged.
+Conversation copy controls carry JSON-encoded text in HTML-escaped data
+attributes, never interpolate transcript content into JavaScript. Literal
+backslashes, template expressions, quotes and line breaks remain clipboard
+data. Public base compatibility is checked on actual Python 3.10/3.11 without
+the optional Hub; Python 3.10's SQLite lock diagnostics use an exact-message
+compatibility check where error-name attributes are unavailable.
 Without the optional dependency, existing DNCP readers remain as a logged/visible
 compatibility path. An installed but
 mismatched package fails explicitly and does not fall back.
