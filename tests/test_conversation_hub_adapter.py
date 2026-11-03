@@ -359,6 +359,36 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertTrue(any("800 characters per message" in note for note in captured.output))
         self.assertTrue(any("qualifying messages" in note for note in hub._source_diagnostics))
 
+    def _write_cli_physical_window_fixture(self) -> None:
+        lines = ["\n", json.dumps({"event": "unsupported"}) + "\n"] * 49
+        lines.append(json.dumps({"role": "user", "message": "line099 visible synthetic prompt"}) + "\n")
+        lines.append(json.dumps({"role": "tool", "message": "line100 visible synthetic tool"}) + "\n")
+        lines.append(json.dumps({"role": "assistant", "message": "line101 Fabric-only synthetic answer"}) + "\n")
+        lines.extend(["\n"] * 18)
+        lines.append(json.dumps({"message": "line120 Fabric boundary synthetic event"}) + "\n")
+        lines.append("{malformed beyond both physical windows}\n")
+        (self.cli_root / "session-b" / "events.jsonl").write_text("".join(lines), encoding="utf-8")
+
+    def test_no_hub_cli_physical_line_windows_exclude_outside_malformed_content(self) -> None:
+        self._write_cli_physical_window_fixture()
+        hub = UnifiedConversationHub(data_dir=self.root / "window-legacy")
+        with patch.object(hub, "_get_hub_api", return_value=None):
+            sessions = hub.scan_copilot_cli(self.cli_root)
+        self.assertEqual(len(sessions), 1)
+        visible = json.dumps(sessions)
+        self.assertIn("line099", visible)
+        self.assertIn("line100", visible)
+        self.assertNotIn("line101", visible)
+        self.assertNotIn("line120", visible)
+        unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+             patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            fabric = _harvest_copilot_sessions()
+        self.assertEqual(len(fabric), 1)
+        self.assertIn("line101", fabric[0]["body"])
+        self.assertIn("line120", fabric[0]["body"])
+        self.assertNotIn("malformed", fabric[0]["body"])
+
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
             _configured_hub_api()
