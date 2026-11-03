@@ -131,19 +131,70 @@ def _harvest_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
     if not brain_root.is_dir():
         return records
     try:
-        _configured_hub_api()
+        sessions, diagnostics, _ = read_local_sessions(
+            "antigravity",
+            brain_root,
+            archive_key="dncp-local-antigravity",
+            max_sessions=max_sessions,
+            selection_policy="directory-first",
+        )
     except ConversationLibraryError as exc:
         if exc.code != "hub_unavailable":
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; Fabric uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.3 adapter."
         )
-    else:
-        logger.warning(
-            "Fabric retains its legacy Antigravity reader because Hub v0.1.2 caps supported "
-            "transcripts rather than DNCP's historical directory-first selection."
-        )
+        sessions = None
+        diagnostics = []
+    except (ValueError, OSError) as exc:
+        logger.warning("Conversation Hub could not read the selected Antigravity source (%s).", type(exc).__name__)
+        return records
+    if sessions is not None:
+        for item in diagnostics:
+            logger.warning("Antigravity Fabric source adapter: %s", item)
+        for session in sessions:
+            user_turns = [
+                redact_secrets(turn["user_prompt"][:1200])
+                for turn in session["turns"]
+                if turn["user_prompt"]
+            ]
+            assistant_turns = [
+                redact_secrets(text[:1200])
+                for turn in session["turns"]
+                for text in turn["assistant_responses"]
+                if text
+            ]
+            assistant_turns.extend(
+                redact_secrets(message["content"][:1200])
+                for message in session["unassigned_messages"]
+                if message["role"] == "assistant" and message["content"]
+            )
+            combined = "\n\n---\n\n".join(
+                [f"[USER]: {text}" for text in user_turns[:8]]
+                + [f"[ASSISTANT]: {text}" for text in assistant_turns[:6]]
+            )
+            if not combined:
+                continue
+            mentioned = sorted(set(match.group(0) for match in ID_RE.finditer(combined)))
+            first_prompt = user_turns[0][:110].replace("\n", " ") if user_turns else (
+                f"Session {session['full_session_id'][:8]}"
+            )
+            records.append({
+                "id": f"CHAT-AGY-{session['full_session_id'][:8]}",
+                "title": f"Antigravity Session: {first_prompt}",
+                "kind": "conversation",
+                "harness": "antigravity",
+                "status": f"{len(user_turns)} user turns",
+                "created_date": session["created_date"],
+                "path": f"conversation://{session['full_session_id']}",
+                "abs_path": session["source_path"],
+                "upstream_refs": mentioned[:6],
+                "downstream_refs": [],
+                "mentioned_ids": mentioned,
+                "body": combined,
+            })
+        return records
 
     session_dirs = sorted(
         [d for d in brain_root.iterdir() if d.is_dir()],
@@ -220,7 +271,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         else:
             logger.warning(
                 "Optional Conversation Hub is not installed; Fabric uses its legacy Copilot CLI reader. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 adapter."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.3 adapter."
             )
         sessions = None
         diagnostics = []

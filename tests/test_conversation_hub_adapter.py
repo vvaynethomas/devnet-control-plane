@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -8,7 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from control_plane.conversation_hub_adapter import read_legacy_sessions, read_local_sessions
-from control_plane.handoff import discover_antigravity_sessions, parse_session_turns
+from control_plane.handoff import (
+    compile_context_handoff, discover_antigravity_sessions, parse_session_turns,
+)
 from control_plane.fabric import _harvest_antigravity_sessions, _harvest_copilot_sessions
 from control_plane.conversations import UnifiedConversationHub
 from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
@@ -147,9 +150,7 @@ class ConversationHubAdapterTests(unittest.TestCase):
         with patch(
             "control_plane.conversation_hub_adapter._configured_hub_api",
             side_effect=unavailable,
-        ), patch("control_plane.fabric._configured_hub_api", side_effect=unavailable), \
-             patch("control_plane.handoff._configured_hub_api", side_effect=unavailable), \
-             patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+        ), patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
              patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
             fabric_ag = _harvest_antigravity_sessions()
             fabric_cli = _harvest_copilot_sessions()
@@ -162,6 +163,109 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertIn("synthetic cli prompt", fabric_cli[0]["body"])
         self.assertEqual(discovered[0]["session_id"], "session-a")
         self.assertEqual(turns[0]["user_prompt"], "hello synthetic")
+
+    def _create_ordered_antigravity_sessions(self, count: int) -> None:
+        self.brain_root.mkdir(parents=True, exist_ok=True)
+        base_time = 1_700_000_000
+        for index in range(count):
+            session_dir = self.brain_root / f"ordered-{index:02}"
+            session_dir.mkdir()
+            transcript = session_dir / ".system_generated" / "logs" / "transcript.jsonl"
+            if index not in {25}:
+                transcript.parent.mkdir(parents=True)
+                if index == 0:
+                    transcript.write_text("{ malformed but outside every tested cap }\n", encoding="utf-8")
+                elif index == 26:
+                    transcript.write_text(
+                        json.dumps({"type": "UNSUPPORTED_EVENT", "content": "synthetic unknown event"}) + "\n",
+                        encoding="utf-8",
+                    )
+                elif index == 23:
+                    transcript.write_text("", encoding="utf-8")
+                else:
+                    events = []
+                    if index != 24:
+                        events.append({
+                            "type": "USER_INPUT",
+                            "content": f"<USER_REQUEST>synthetic prompt {index}</USER_REQUEST>",
+                            "created_at": f"2025-01-01T10:{index:02}:00Z",
+                        })
+                    if index != 5:
+                        response = {
+                            "type": "PLANNER_RESPONSE",
+                            "content": f"synthetic answer {index}",
+                            "created_at": f"2025-01-01T10:{index:02}:01Z",
+                        }
+                        if index == 7:
+                            response["tool_calls"] = [{
+                                "function": {
+                                    "name": "synthetic_tool",
+                                    "arguments": {"toolSummary": "synthetic invocation"},
+                                },
+                            }]
+                        events.append(response)
+                    transcript.write_text(
+                        "".join(json.dumps(event) + "\n" for event in events),
+                        encoding="utf-8",
+                    )
+            os.utime(session_dir, (base_time + index, base_time + index))
+
+    def test_antigravity_directory_first_caps_order_diagnostics_and_handoff_projection(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for Antigravity contract coverage")
+            raise
+        self.home = self.root / "ordered-home"
+        self.brain_root = self.home / ".gemini" / "antigravity" / "brain"
+        self._create_ordered_antigravity_sessions(27)
+        hub = UnifiedConversationHub(data_dir=self.root / "dncp-data", factory_root=self.root)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+             patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
+            manager = hub.scan_antigravity(self.brain_root)
+            fabric = _harvest_antigravity_sessions()
+            handoff = discover_antigravity_sessions()
+            parsed = parse_session_turns(
+                self.brain_root / "ordered-07" / ".system_generated" / "logs" / "transcript.jsonl",
+            )
+            handoff_packet = compile_context_handoff(
+                session_id="ordered-07",
+                factory_root=self.root,
+                network_root=self.root,
+            )
+        selected, diagnostics, _ = read_local_sessions(
+            "antigravity",
+            self.brain_root,
+            archive_key="test-directory-first",
+            max_sessions=25,
+            selection_policy="directory-first",
+        )
+
+        self.assertTrue(diagnostics)
+        selected_ids = [session["full_session_id"] for session in selected]
+        self.assertEqual(
+            selected_ids,
+            sorted(selected_ids, key=lambda value: int(value.rsplit("-", 1)[1]), reverse=True),
+        )
+        self.assertNotIn("ordered-00", set(selected_ids))
+        self.assertNotIn("ordered-01", set(selected_ids))
+        self.assertNotIn("ordered-25", set(selected_ids))
+        self.assertIn("ordered-23", set(selected_ids))
+        self.assertIn("ordered-26", set(selected_ids))
+        fabric_ids = {Path(record["abs_path"]).parents[2].name for record in fabric}
+        self.assertNotIn("ordered-06", fabric_ids)
+        self.assertIn("ordered-07", fabric_ids)
+        self.assertIn("ordered-06", {session["full_session_id"] for session in manager})
+        self.assertIn("ordered-24", fabric_ids)
+        self.assertNotIn("ordered-23", {session["full_session_id"] for session in manager})
+        self.assertNotIn("ordered-26", fabric_ids)
+        self.assertNotIn("ordered-26", {session["full_session_id"] for session in manager})
+        self.assertNotIn("ordered-24", {session["session_id"] for session in handoff})
+        self.assertNotIn("ordered-25", {session["full_session_id"] for session in manager})
+        self.assertTrue(any("synthetic_tool" in tool for tool in parsed[0]["tool_calls"]))
+        self.assertIn("synthetic invocation", parsed[0]["tool_calls"][0])
+        self.assertIn("synthetic_tool", handoff_packet["markdown"])
 
     def test_ui_reports_adapter_revision_and_escapes_diagnostics(self) -> None:
         workbench = ControlPlaneWorkbench.__new__(ControlPlaneWorkbench)
@@ -191,8 +295,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.2",
-                "revision": "381644edec4c948375bc6f24b695bbba7b699e7a",
+                "version": "0.1.3",
+                "revision": "654291bfcb5b928f86aec75acd8cf58336837412",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -202,8 +306,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.2", rendered)
-        self.assertIn("381644edec4c948375bc6f24b695bbba7b699e7a", rendered)
+        self.assertIn("conversation-hub 0.1.3", rendered)
+        self.assertIn("654291bfcb5b928f86aec75acd8cf58336837412", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)

@@ -57,6 +57,7 @@ def _session_from_conversation(
             turns.append({
                 "turn_index": turn.index,
                 "timestamp": turn.timestamp or "",
+                "user_message_count": len(turn.user_messages),
                 "user_prompt": "\n\n".join(message.content for message in turn.user_messages),
                 "assistant_responses": [message.content for message in turn.assistant_messages],
                 "other_messages": [
@@ -120,6 +121,7 @@ def read_local_sessions(
     *,
     archive_key: str,
     max_sessions: int | None = None,
+    selection_policy: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, str | None]]:
     api, info = _configured_hub_api()
     reader_name, default_limit, _, _, _ = _SOURCE_READERS[source_kind]
@@ -127,7 +129,10 @@ def read_local_sessions(
     limit = default_limit if max_sessions is None else max_sessions
     if not root.is_dir():
         return [], [], info
-    result = reader(root, archive_key=archive_key, max_sessions=limit)
+    options: dict[str, Any] = {"archive_key": archive_key, "max_sessions": limit}
+    if source_kind == "antigravity" and selection_policy is not None:
+        options["selection_policy"] = selection_policy
+    result = reader(root, **options)
     conversations = [conversation for batch in result.batches for conversation in batch.conversations]
     sessions = [
         _session_from_conversation(conversation, api, source_kind)

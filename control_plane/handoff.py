@@ -16,12 +16,23 @@ import re
 import subprocess
 import sys
 from typing import Any
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
-from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
+from control_plane.conversation_library import ConversationLibraryError
+from control_plane.conversation_hub_adapter import read_local_sessions
 
 logger = logging.getLogger(__name__)
+
+
+def _local_source_path(uri: str) -> Path:
+    parsed = urlsplit(uri)
+    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
+        raise ValueError("Conversation Hub returned a non-local source URI for a local transcript")
+    return Path(url2pathname(unquote(parsed.path)))
+
 
 def _get_git_state(repo_dir: Path) -> dict[str, str]:
     """Retrieve current branch, head commit, and dirty status."""
@@ -50,19 +61,52 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
     if not brain_root.is_dir():
         return sessions
     try:
-        _configured_hub_api()
+        adapted, diagnostics, _ = read_local_sessions(
+            "antigravity",
+            brain_root,
+            archive_key="dncp-local-antigravity",
+            max_sessions=max_sessions,
+            selection_policy="directory-first",
+        )
     except ConversationLibraryError as exc:
         if exc.code != "hub_unavailable":
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.3 adapter."
         )
-    else:
-        logger.warning(
-            "Handoff retains its legacy Antigravity selection because Hub v0.1.2 caps supported "
-            "transcripts rather than DNCP's historical directory-first selection."
-        )
+        adapted = None
+        diagnostics = []
+    except (ValueError, OSError) as exc:
+        logger.warning("Conversation Hub could not read the selected Antigravity source (%s).", type(exc).__name__)
+        return sessions
+    if adapted is not None:
+        for item in diagnostics:
+            logger.warning("Antigravity handoff source adapter: %s", item)
+        for session in adapted:
+            turns = session["turns"]
+            user_turns = [
+                turn for turn in turns
+                if turn.get("user_message_count", bool(turn["user_prompt"]))
+            ]
+            if not user_turns:
+                continue
+            last_turn_time = user_turns[-1]["timestamp"]
+            source_path = _local_source_path(session["source_path"])
+            last_turn_time = last_turn_time[:19] if last_turn_time else ""
+            sessions.append({
+                "session_id": session["full_session_id"],
+                "harness": "antigravity",
+                "title": user_turns[0]["user_prompt"].replace("\n", " ")[:110]
+                or f"Session {session['full_session_id'][:8]}",
+                "user_turns": len(user_turns),
+                "last_modified": last_turn_time or (
+                    datetime.fromtimestamp(source_path.stat().st_mtime, tz=timezone.utc).isoformat()[:19]
+                ),
+                "transcript_path": str(source_path),
+                "turns": turns,
+            })
+        return sessions
 
     subdirs = sorted(
         [d for d in brain_root.iterdir() if d.is_dir()],
@@ -114,19 +158,46 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
     if not transcript_path.is_file():
         return turns
     try:
-        _configured_hub_api()
+        selected_path = transcript_path.resolve(strict=True)
+        if (
+            selected_path.name != "transcript.jsonl"
+            or selected_path.parent.name != "logs"
+            or selected_path.parent.parent.name != ".system_generated"
+        ):
+            raise ValueError("Selected transcript is not an Antigravity transcript path")
+        brain_root = selected_path.parents[3]
+        sessions, diagnostics, _ = read_local_sessions(
+            "antigravity",
+            brain_root,
+            archive_key="dncp-local-antigravity",
+            max_sessions=20,
+            selection_policy="directory-first",
+        )
     except ConversationLibraryError as exc:
         if exc.code != "hub_unavailable":
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; handoff uses its legacy Antigravity parser. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.3 adapter."
         )
-    else:
-        logger.warning(
-            "Handoff retains its legacy Antigravity parser because Hub v0.1.2 caps supported "
-            "transcripts rather than DNCP's historical directory-first selection."
+        sessions = None
+        diagnostics = []
+    except (OSError, ValueError) as exc:
+        logger.warning("Conversation Hub could not read the selected Antigravity transcript (%s).", type(exc).__name__)
+        return turns
+    if sessions is not None:
+        for item in diagnostics:
+            logger.warning("Antigravity handoff source adapter: %s", item)
+        selected = next(
+            (session for session in sessions if Path(_local_source_path(session["source_path"])) == selected_path),
+            None,
         )
+        if selected is None:
+            logger.warning(
+                "Selected Antigravity transcript is unsupported or outside the directory-first session cap."
+            )
+            return turns
+        return selected["turns"]
 
     with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -206,7 +277,9 @@ def compile_context_handoff(
         }
 
     t_path = Path(target_session["transcript_path"])
-    all_turns = parse_session_turns(t_path)
+    all_turns = target_session.get("turns")
+    if all_turns is None:
+        all_turns = parse_session_turns(t_path)
     selected_turns = all_turns[-turns_limit:] if turns_limit else all_turns
 
     git_info = _get_git_state(factory_root)
