@@ -243,6 +243,14 @@ class ConversationHubAdapterTests(unittest.TestCase):
         )
 
         self.assertTrue(diagnostics)
+        self.assertTrue(any(
+            "Directory-first selection capped at 25 session directories" in item
+            for item in diagnostics
+        ))
+        self.assertTrue(any(
+            "lacked the expected transcript path" in item
+            for item in diagnostics
+        ))
         selected_ids = [session["full_session_id"] for session in selected]
         self.assertEqual(
             selected_ids,
@@ -295,8 +303,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.3",
-                "revision": "654291bfcb5b928f86aec75acd8cf58336837412",
+                "version": "0.1.4",
+                "revision": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -306,8 +314,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.3", rendered)
-        self.assertIn("654291bfcb5b928f86aec75acd8cf58336837412", rendered)
+        self.assertIn("conversation-hub 0.1.4", rendered)
+        self.assertIn("11eb07caf7ce45eb35111c9ef017ad9c21de0ad2", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)
