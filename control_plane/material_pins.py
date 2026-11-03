@@ -13,7 +13,7 @@ UTILITY_REQUIREMENT = (
     f"utility-chest-credential-patterns @ git+{UTILITY_URL}.git@{UTILITY_COMMIT}"
     f"#subdirectory={UTILITY_SUBDIRECTORY}"
 )
-HUB_VERSION = "0.1.2"
-HUB_COMMIT = "381644edec4c948375bc6f24b695bbba7b699e7a"
-HUB_WHEEL_SHA256 = "537dd2fc8f792742d64fd6377b3fa706af8fb2d8f2af7b491dbe5a82a30237c1"
+HUB_VERSION = "0.1.4"
+HUB_COMMIT = "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2"
+HUB_WHEEL_SHA256 = "245d47c9df93567f65b8f0ae274484b9fca89374173238eb3ef500161fc65e94"
 HUB_URL = "https://github.com/vvaynethomas/conversation-hub"

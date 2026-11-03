@@ -97,10 +97,10 @@ evidence. The process caches its checked core, so reload after intentional updat
 
 ## Combined optional consumers
 
-The `conversation-hub` extra independently pins v0.1.2 at
-`381644edec4c948375bc6f24b695bbba7b699e7a`, marker-gated to Python >=3.12;
+The `conversation-hub` extra independently pins v0.1.4 at
+`11eb07caf7ce45eb35111c9ef017ad9c21de0ad2`, marker-gated to Python >=3.12;
 its published wheel SHA-256 is
-`537dd2fc8f792742d64fd6377b3fa706af8fb2d8f2af7b491dbe5a82a30237c1`.
+`245d47c9df93567f65b8f0ae274484b9fca89374173238eb3ef500161fc65e94`.
 It does not install Material Core, and the `material` extra does not install Hub.
 Install both explicitly on Python >=3.12 with:
 
@@ -129,9 +129,11 @@ python -m unittest discover -s tests -p test_material_core_package.py -v
 python -m unittest discover -s tests -p test_phone_home_package.py -v
 ```
 
-Local validation used Python
-3.14; no 3.10/3.11 interpreter was installed. Marker evaluations for those versions
-are tested, but that is not a substitute for runtime tests on those interpreters.
+The base wheel's imports, CLI version, metadata, and explicit missing-capability
+errors were smoke-tested from the wheel on PSF-signed Python 3.10.11 and 3.11.9
+embeddable runtimes. Those checks did not perform a pip installation or exercise
+the Hub extra, which is intentionally gated to Python >=3.12. The full isolated
+install matrix ran on Python 3.14.
 
 ## Scope and approval limits
 

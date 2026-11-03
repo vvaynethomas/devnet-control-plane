@@ -71,12 +71,17 @@ class UnifiedConversationHub:
             self._hub_info = {"implementation": "dncp-legacy-adapter", "version": None, "revision": None}
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 producer adapters."
             )
         return self._hub_api
 
     def _read_local_sessions(
-        self, source_kind: str, root: Path, max_sessions: int | None = None,
+        self,
+        source_kind: str,
+        root: Path,
+        max_sessions: int | None = None,
+        *,
+        selection_policy: str | None = None,
     ) -> list[dict[str, Any]] | None:
         if self._get_hub_api() is None:
             return None
@@ -85,6 +90,7 @@ class UnifiedConversationHub:
                 source_kind, root,
                 archive_key=f"dncp-local-{source_kind}",
                 max_sessions=max_sessions,
+                selection_policy=selection_policy,
             )
             self._source_diagnostics.extend(diagnostics)
             return sessions
@@ -160,11 +166,17 @@ class UnifiedConversationHub:
     def scan_antigravity(self, brain_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local Antigravity sessions."""
         brain_root = brain_root or (Path(os.path.expanduser("~")) / ".gemini" / "antigravity" / "brain")
-        if self._get_hub_api() is not None:
-            self._source_diagnostics.append(
-                "Antigravity remains on DNCP's legacy reader: Hub v0.1.2 caps supported transcript files, "
-                "while DNCP historically capped session directories before checking for transcripts."
-            )
+        selected = self._read_local_sessions(
+            "antigravity",
+            brain_root,
+            max_sessions=25,
+            selection_policy="directory-first",
+        )
+        if selected is not None:
+            sessions = [session for session in selected if session["turns"]]
+            for session in sessions:
+                session["workspace"] = self.factory_root.name
+            return sessions
         sessions = []
         if not brain_root.is_dir():
             return sessions
@@ -424,7 +436,7 @@ class UnifiedConversationHub:
         if self._get_hub_api() is None and not self._source_diagnostics:
             self._source_diagnostics.append(
                 "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.2 producer adapters."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 producer adapters."
             )
         all_sessions = (
             self.scan_antigravity() +
