@@ -19,8 +19,8 @@ from uuid import uuid4
 
 
 PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
-HUB_READER_REVISION = "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2"
-HUB_READER_VERSION = "0.1.4"
+HUB_READER_REVISION = "cd66bd37ebad82c28465270a915415df1aacec3e"
+HUB_READER_VERSION = "0.1.5"
 HUB_READER_URL = "https://github.com/vvaynethomas/conversation-hub.git"
 APPLICATION_ID = 0x41434831
 SCHEMA_VERSION = 1
@@ -37,6 +37,7 @@ SnapshotReader = Callable[[Path], ContextManager[sqlite3.Connection]]
 class ConversationHubAPI:
     read_snapshot: Callable[..., Any]
     read_antigravity_sessions: Callable[..., Any]
+    read_antigravity_transcript: Callable[..., Any]
     read_vscode_copilot_sessions: Callable[..., Any]
     read_copilot_cli_sessions: Callable[..., Any]
     read_legacy_imported_chats: Callable[..., Any]
@@ -171,7 +172,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     ):
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub does not match the pinned v0.1.4 commit. "
+            "Installed Conversation Hub does not match the pinned v0.1.5 commit. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
@@ -251,6 +252,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     required = (
         (loaded.get("library"), "read_snapshot"),
         (loaded.get("sources"), "read_antigravity_sessions"),
+        (loaded.get("sources"), "read_antigravity_transcript"),
         (loaded.get("sources"), "read_vscode_copilot_sessions"),
         (loaded.get("sources"), "read_copilot_cli_sessions"),
         (loaded.get("sources"), "read_legacy_imported_chats"),
@@ -267,6 +269,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     api = ConversationHubAPI(
         read_snapshot=loaded["library"].read_snapshot,
         read_antigravity_sessions=loaded["sources"].read_antigravity_sessions,
+        read_antigravity_transcript=loaded["sources"].read_antigravity_transcript,
         read_vscode_copilot_sessions=loaded["sources"].read_vscode_copilot_sessions,
         read_copilot_cli_sessions=loaded["sources"].read_copilot_cli_sessions,
         read_legacy_imported_chats=loaded["sources"].read_legacy_imported_chats,

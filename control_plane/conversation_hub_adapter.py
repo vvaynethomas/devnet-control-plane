@@ -154,7 +154,10 @@ def _session_from_conversation(
         "turn_count": turn_count,
         "est_input_tokens": input_tokens,
         "est_output_tokens": output_tokens,
-        "est_total_tokens": input_tokens + output_tokens + unclassified_tokens,
+        "est_total_tokens": (
+            estimated if source_kind == "legacy"
+            else input_tokens + output_tokens + unclassified_tokens
+        ),
         "source_path": source_path,
         **({
             "source_uri": source_uri,
@@ -181,7 +184,9 @@ def read_local_sessions(
     limit = default_limit if max_sessions is None else max_sessions
     if not root.is_dir():
         return [], [], info
-    options: dict[str, Any] = {"archive_key": archive_key, "max_sessions": limit}
+    options: dict[str, Any] = {
+        "archive_key": archive_key, "max_sessions": limit, "malformed_sources": "skip-file",
+    }
     if source_kind == "antigravity" and selection_policy is not None:
         options["selection_policy"] = selection_policy
     result = reader(root, **options)
@@ -191,11 +196,29 @@ def read_local_sessions(
         for conversation in conversations
     ]
     diagnostics = list(result.limitations)
+    diagnostics.extend(result.skipped_inputs)
+    if result.skipped_count:
+        diagnostics.append(
+            f"{source_kind}: {result.skipped_count} malformed selected source files skipped "
+            f"within {result.selected_count} selected slots; no cap refill."
+        )
     if result.omitted_count:
         diagnostics.append(
             f"{source_kind}: {result.omitted_count} additional source files were omitted by the producer limit."
         )
-    return sessions, diagnostics, info
+    return sessions, list(dict.fromkeys(diagnostics)), info
+
+
+def read_antigravity_transcript(
+    transcript_path: Path, *, archive_key: str, session_id: str,
+) -> tuple[dict[str, Any], list[str]]:
+    api, _ = _configured_hub_api()
+    batch = api.read_antigravity_transcript(
+        transcript_path, archive_key=archive_key, session_id=session_id,
+        malformed_lines="skip-line",
+    )
+    conversation = batch.conversations[0]
+    return _session_from_conversation(conversation, api, "antigravity"), list(conversation.limitations)
 
 
 def read_legacy_sessions(

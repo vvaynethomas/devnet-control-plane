@@ -197,6 +197,26 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertTrue(imported[0]["source_path"].startswith("database://"))
         self.assertEqual(self.database.read_bytes(), database_before)
 
+    def test_imported_odd_token_total_is_preserved_with_and_without_hub(self) -> None:
+        with closing(sqlite3.connect(self.database)) as connection:
+            connection.execute("UPDATE imported_chats SET est_tokens = 101")
+            connection.commit()
+        legacy = UnifiedConversationHub(data_dir=self.root / "odd-legacy")
+        legacy.db_path = self.database
+        with patch.object(legacy, "_get_hub_api", return_value=None):
+            session = legacy.get_imported_chats()[0]
+            self.assertEqual(session["est_total_tokens"], 101)
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for odd-total parity")
+            raise
+        imported, _, _ = read_legacy_sessions(self.database, archive_key="synthetic-odd")
+        self.assertEqual(imported[0]["est_total_tokens"], 101)
+        self.assertEqual(imported[0]["est_input_tokens"], 50)
+        self.assertEqual(imported[0]["est_output_tokens"], 50)
+
     def test_fabric_cli_uses_hub_and_antigravity_preserves_selection(self) -> None:
         with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
              patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
@@ -533,7 +553,7 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(cli[0]["full_session_id"], "session-b")
         self.assertEqual(imported, [])
 
-    def test_direct_handoff_without_hub_reads_exact_path_and_skips_bad_lines(self) -> None:
+    def _assert_direct_handoff_reads_exact_path(self) -> None:
         outside_layout = self.root / "selected%20 file.jsonl"
         outside_cap = self.brain_root / "old-session" / ".system_generated" / "logs" / "transcript.jsonl"
         outside_cap.parent.mkdir(parents=True)
@@ -549,13 +569,29 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ]) + "\n"
         outside_layout.write_text(events, encoding="utf-8")
         outside_cap.write_text(events, encoding="utf-8")
+        for path in (outside_layout, outside_cap):
+            with self.subTest(path=path):
+                before = path.read_bytes()
+                turns = parse_session_turns(path)
+                self.assertEqual(turns[0]["user_prompt"], "synthetic selected prompt")
+                self.assertEqual(turns[0]["assistant_responses"], ["synthetic selected answer"])
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_direct_handoff_without_hub_reads_exact_path_and_skips_bad_lines(self) -> None:
         unavailable = ConversationLibraryError("hub_unavailable", "optional package unavailable", 503)
         with patch("control_plane.handoff._configured_hub_api", side_effect=unavailable):
-            for path in (outside_layout, outside_cap):
-                with self.subTest(path=path):
-                    turns = parse_session_turns(path)
-                    self.assertEqual(turns[0]["user_prompt"], "synthetic selected prompt")
-                    self.assertEqual(turns[0]["assistant_responses"], ["synthetic selected answer"])
+            self._assert_direct_handoff_reads_exact_path()
+
+    def test_direct_handoff_with_hub_reads_exact_path_and_skips_bad_lines(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for exact-file coverage")
+            raise
+        with self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+            self._assert_direct_handoff_reads_exact_path()
+        self.assertTrue(any("malformed line(s) skipped" in item for item in captured.output))
 
     def test_direct_handoff_incompatible_hub_fails_closed_before_layout_check(self) -> None:
         path = self.root / "off-layout.jsonl"
@@ -565,9 +601,9 @@ class ConversationHubAdapterTests(unittest.TestCase):
             with self.assertRaises(ConversationLibraryError):
                 parse_session_turns(path)
 
-    def test_pinned_producer_malformed_sibling_contract_requires_new_api(self) -> None:
+    def test_malformed_siblings_are_isolated_across_all_migrated_consumers(self) -> None:
         try:
-            _configured_hub_api()
+            api, _ = _configured_hub_api()
         except ConversationLibraryError as exc:
             if exc.code == "hub_unavailable":
                 self.skipTest("Install the optional Conversation Hub extra for contract coverage")
@@ -584,11 +620,31 @@ class ConversationHubAdapterTests(unittest.TestCase):
             ("copilot-cli", self.cli_root),
         ):
             with self.subTest(source=kind):
+                reader = getattr(api, {
+                    "antigravity": "read_antigravity_sessions",
+                    "vscode-copilot": "read_vscode_copilot_sessions",
+                    "copilot-cli": "read_copilot_cli_sessions",
+                }[kind])
                 with self.assertRaises(ValueError):
-                    read_local_sessions(
-                        kind, root, archive_key="synthetic-contract", max_sessions=25,
-                        selection_policy="directory-first" if kind == "antigravity" else None,
-                    )
+                    reader(root, archive_key="strict-contract", max_sessions=25)
+                sessions, diagnostics, _ = read_local_sessions(
+                    kind, root, archive_key="synthetic-contract", max_sessions=25,
+                    selection_policy="directory-first" if kind == "antigravity" else None,
+                )
+                self.assertEqual(len(sessions), 1)
+                self.assertTrue(any("1 malformed selected source files skipped" in note for note in diagnostics))
+                self.assertFalse(any("{malformed synthetic file}" in note for note in diagnostics))
+        manager = UnifiedConversationHub(data_dir=self.root / "hub-compatibility")
+        self.assertEqual(len(manager.scan_antigravity(self.brain_root)), 1)
+        self.assertEqual(len(manager.scan_vscode_copilot(self.vscode_root)), 1)
+        self.assertEqual(len(manager.scan_copilot_cli(self.cli_root)), 1)
+        self.assertTrue(any("malformed selected source files skipped" in note
+                            for note in manager._source_diagnostics))
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)), \
+             patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
+            self.assertEqual(len(_harvest_antigravity_sessions()), 1)
+            self.assertEqual(len(_harvest_copilot_sessions()), 1)
+            self.assertEqual(len(discover_antigravity_sessions()), 1)
         legacy = UnifiedConversationHub(data_dir=self.root / "legacy-compatibility")
         with patch.object(legacy, "_get_hub_api", return_value=None):
             self.assertEqual(len(legacy.scan_antigravity(self.brain_root)), 1)
@@ -603,6 +659,50 @@ class ConversationHubAdapterTests(unittest.TestCase):
         with patch("control_plane.conversations._configured_hub_api", side_effect=incompatible):
             with self.assertRaises(ConversationLibraryError):
                 hub.scan_antigravity(self.brain_root)
+
+    def test_tolerant_source_reads_keep_caps_and_resource_failures_fatal(self) -> None:
+        try:
+            api, info = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for bound coverage")
+            raise
+        bad_ag = self.brain_root / "new-bad" / ".system_generated" / "logs" / "transcript.jsonl"
+        bad_vscode = self.vscode_root / "workspace-a" / "chatSessions" / "new-bad.jsonl"
+        bad_cli = self.cli_root / "new-bad" / "events.jsonl"
+        for path in (bad_ag, bad_vscode, bad_cli):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{malformed synthetic}\n", encoding="utf-8")
+            os.utime(path, (1_900_000_000, 1_900_000_000))
+        os.utime(bad_ag.parents[2], (1_900_000_000, 1_900_000_000))
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", return_value=(api, info)):
+            for kind, root in (
+                ("antigravity", self.brain_root),
+                ("vscode-copilot", self.vscode_root),
+                ("copilot-cli", self.cli_root),
+            ):
+                with self.subTest(source=kind):
+                    selected, diagnostics, _ = read_local_sessions(
+                        kind, root, archive_key="no-refill", max_sessions=1,
+                        selection_policy="directory-first" if kind == "antigravity" else None,
+                    )
+                    self.assertEqual(selected, [])
+                    self.assertTrue(any("1 selected slots; no cap refill" in note for note in diagnostics))
+                    source_globals = api.read_antigravity_sessions.__globals__
+                    for limit, value in (
+                        ("MAX_SOURCE_FILE_BYTES", 8),
+                        ("MAX_SOURCE_ROOT_BYTES", 8),
+                        ("MAX_EVENTS_PER_SESSION", 1),
+                    ):
+                        with self.subTest(limit=limit), patch.dict(source_globals, {limit: value}):
+                            with self.assertRaises(ValueError):
+                                read_local_sessions(kind, root, archive_key="fatal-bound", max_sessions=25)
+            transcript = self.session_dir / ".system_generated" / "logs" / "transcript.jsonl"
+            with patch.dict(api.read_antigravity_transcript.__globals__, {"MAX_SOURCE_FILE_BYTES": 8}), \
+                 patch("control_plane.handoff._configured_hub_api", return_value=(api, info)), \
+                 self.assertLogs("control_plane.handoff", level="WARNING") as captured:
+                self.assertEqual(parse_session_turns(transcript), [])
+            self.assertTrue(any("could not read" in note for note in captured.output))
 
     def test_base_install_fallbacks_remain_explicit_and_synthetic(self) -> None:
         unavailable = ConversationLibraryError(
@@ -764,8 +864,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
             }],
             "source_adapter": {
                 "implementation": "conversation-hub",
-                "version": "0.1.4",
-                "revision": "11eb07caf7ce45eb35111c9ef017ad9c21de0ad2",
+                "version": "0.1.5",
+                "revision": "cd66bd37ebad82c28465270a915415df1aacec3e",
                 "diagnostics": ["<source> is bounded"],
             },
         })
@@ -775,8 +875,8 @@ class ConversationHubAdapterTests(unittest.TestCase):
         ):
             rendered = workbench.render_conversations_tab()
 
-        self.assertIn("conversation-hub 0.1.4", rendered)
-        self.assertIn("11eb07caf7ce45eb35111c9ef017ad9c21de0ad2", rendered)
+        self.assertIn("conversation-hub 0.1.5", rendered)
+        self.assertIn("cd66bd37ebad82c28465270a915415df1aacec3e", rendered)
         self.assertIn("&lt;source&gt; is bounded", rendered)
         self.assertIn("&lt;tool&gt; output", rendered)
         self.assertIn("&lt;unassigned&gt; source", rendered)

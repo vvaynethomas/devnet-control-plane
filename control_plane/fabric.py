@@ -143,7 +143,7 @@ def _harvest_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             raise
         logger.warning(
             "Optional Conversation Hub is not installed; Fabric uses its legacy Antigravity reader. "
-            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+            "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.5 adapter."
         )
         sessions = None
         diagnostics = []
@@ -271,7 +271,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         else:
             logger.warning(
                 "Optional Conversation Hub is not installed; Fabric uses its legacy Copilot CLI reader. "
-                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.4 adapter."
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.5 adapter."
             )
         sessions = None
         diagnostics = []

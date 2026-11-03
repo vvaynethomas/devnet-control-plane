@@ -33,11 +33,11 @@ which merged PRJ-0006's explicit local reader contract:
   acceptance or an approved long-term UI contract.
 
 The standalone `conversation-hub` package is pinned as an **optional dependency**
-to the immutable v0.1.4 prerelease commit
-[`11eb07caf7ce45eb35111c9ef017ad9c21de0ad2`](https://github.com/vvaynethomas/conversation-hub/commit/11eb07caf7ce45eb35111c9ef017ad9c21de0ad2).
+to the immutable v0.1.5 prerelease commit
+[`cd66bd37ebad82c28465270a915415df1aacec3e`](https://github.com/vvaynethomas/conversation-hub/commit/cd66bd37ebad82c28465270a915415df1aacec3e).
 The published wheel
-`conversation_hub-0.1.4-py3-none-any.whl` was independently checked at
-SHA-256 `245d47c9df93567f65b8f0ae274484b9fca89374173238eb3ef500161fc65e94`.
+`conversation_hub-0.1.5-py3-none-any.whl` was independently checked at
+SHA-256 `020ea27aa2c46c6c6d680cb3b1bc4b63ad4cb369cc671206344d8c7f8077ce74`.
 It remains a private, untrusted prerelease: its release metadata explicitly says
 `trusted: false`, `ready_for_human_release_decision: false`, and evaluation is
 not complete. Install this private extra with Python 3.12+ and repository access:
@@ -77,11 +77,20 @@ and 25 CLI files; handoff selects at most 20 Antigravity directories. The curren
 Hub Antigravity reader supports `selection_policy="directory-first"`: DNCP passes
 this option for each migrated Antigravity surface, so the producer sorts session
 directories by directory mtime, applies the existing cap, and then checks
-transcript availability. v0.1.4 also corrects the Antigravity coverage diagnostic
+transcript availability. The v0.1.4 diagnostic correction remains in v0.1.5
 without changing directory-first selection behavior. DNCP explicitly requests
 directory-first rather than relying on the reader's default policy. VS Code and
 CLI omissions and producer limitations are included in diagnostics or logs.
 Legacy imported-chat SQLite reads are read-only.
+Root readers explicitly opt into `malformed_sources="skip-file"`: malformed
+selected files are diagnosed and valid siblings retained, without refilling
+selected slots. Source path/I/O and file/root/event/nesting resource failures
+remain fatal. Handoff's direct parser uses `read_antigravity_transcript` with
+`malformed_lines="skip-line"` to read exactly the requested existing file,
+including off-layout or beyond-cap selections. Standard paths retain their
+session-directory identity; off-layout selection uses a deterministic URI hash
+as the caller-supplied identifier. Skipped line diagnostics preserve raw-byte
+provenance; recognized-field, encoding and resource errors remain explicit.
 Local-source responses keep filesystem paths in `source_path` and retain Hub's
 original file URI separately as `source_uri`. CLI Fabric indexing and conversation
 presentation preserve the redacted producer message order, including unassigned
@@ -157,7 +166,7 @@ stderr, and emit no partial stdout or imported content:
 | Code | Meaning |
 | :--- | :--- |
 | `hub_unavailable` | Optional private Conversation Hub extra is not installed. Install `devnet-control-plane[conversation-hub]` with Python 3.12+ and repository access. No local reader fallback is used. |
-| `hub_incompatible` | Installed extra is not v0.1.4 at the configured full commit or lacks a required library/source/view API. Reinstall the optional extra. |
+| `hub_incompatible` | Installed extra is not v0.1.5 at the configured full commit or lacks a required library/source/view API. Reinstall the optional extra. |
 | `invalid_request` | Malformed expected SHA-256. |
 | `unavailable` | Selected file missing, unreadable, corrupt, or query budget exceeded. No database is created. |
 | `schema_incompatible` | Unmarked, unsupported application/schema/record shape, inconsistent observation identity/provenance, or missing revision/export reference. No migration attempted. |
@@ -185,7 +194,7 @@ covers optional-package fallback, exact-distribution loading, source diagnostics
 Fabric/handoff projections, UI diagnostic escaping, stale/unavailable/schema
 errors, bounded reads, and concurrent WAL snapshot behavior. The same tests pass
 without the optional package (with its package-integration cases skipped) and
-with exact commit `11eb07caf7ce45eb35111c9ef017ad9c21de0ad2` installed into a
+with exact commit `cd66bd37ebad82c28465270a915415df1aacec3e` installed into a
 temporary target directory. The downloaded release wheel hash matched the
 published digest; the integration test exercises the VCS-commit install so its
 PEP 610 metadata matches the pin. No real
@@ -208,20 +217,21 @@ evidence, not validation of the new observation timestamp or snapshot API.
 
 ## Remaining release and acceptance gates
 
-The v0.1.4 prerelease source APIs provide explicit-root Antigravity, VS Code Copilot,
+The v0.1.5 prerelease source APIs provide explicit-root Antigravity, VS Code Copilot,
 Copilot CLI, legacy imported-chat reads, conversation reads, and redacted views.
 Synthetic tests exercise all four producer readers and the migrated consumer
 surfaces without opening a real history. Remaining boundaries are:
 
 | Area | Remaining gate |
 | :--- | :--- |
-| Dependency pin | v0.1.4 is an immutable prerelease pin, but is private and explicitly untrusted/not ready for a human release decision; promotion and product qualification remain open. Python >=3.12 remains a Hub-extra requirement; DNCP base Python >=3.10 support remains optional and unverified on 3.10/3.11 in this environment. The wheel digest is not checked at runtime. |
-| Producer diagnostics | DNCP uses v0.1.4's explicit directory-first Antigravity policy. Its corrected coverage diagnostic and directory-first behavior are covered with synthetic fixtures. |
-| Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: v0.1.4 offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
+| Dependency pin | v0.1.5 is an immutable prerelease source pin, but is private and explicitly untrusted/not ready for a human release decision; promotion and product qualification remain open. Python >=3.12 remains a Hub-extra requirement; DNCP no-extra tests and compilation have passed on actual 3.10/3.11. The wheel digest is not checked at runtime. The final migration pin awaits the CLI window gate below. |
+| Producer diagnostics | DNCP uses v0.1.5's explicit directory-first Antigravity policy and malformed-source isolation. Coverage, selected-slot/no-refill semantics and resource failures are covered with synthetic fixtures. |
+| Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: v0.1.5 offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
 | Fabric / UI semantics | Fabric indexing and the existing UI remain DNCP responsibilities. Token estimates remain DNCP heuristics, not Hub metrics. Producer limits and unversioned-source limitations are exposed through diagnostics; this is not complete history or identity reconciliation. |
-| Handoff | Antigravity selection and parsing now consume Hub's directory-first projection, while DNCP retains its existing handoff Markdown format and selection UI. No automatic handoff or transmission is added. |
-| Malformed-source compatibility | v0.1.4 aborts the whole selected batch on a malformed Antigravity, VS Code, or CLI transcript. Legacy DNCP skips malformed files and retains valid siblings. This is an unresolved compatibility regression; do not qualify or land the migrated readers until the producer provides an opt-in per-file failure policy retaining root/file/event bounds and redacted diagnostics. DNCP does not retry smaller subsets or use private producer parsing helpers to evade those bounds. |
-| Direct transcript compatibility | With no Hub installed, handoff still parses exactly the supplied existing file, regardless of layout or sibling cap, skipping malformed lines. With v0.1.4 installed, the root-only API cannot preserve this behavior for off-layout files or files beyond the sibling cap. An explicit-file producer API with bounded, opt-in malformed-line skipping is required. An incompatible installed Hub always fails closed. |
+| Handoff | Discovery uses Hub's directory-first projection; parsing uses its bounded exact-file API, preserving off-layout and beyond-cap explicit selection. DNCP retains handoff Markdown and selection UI. No automatic handoff or transmission is added. |
+| Malformed-source compatibility | v0.1.5 opt-in per-file failure policy retains valid selected siblings without cap refill or bound evasion. Strict producer defaults remain unchanged. |
+| Direct transcript compatibility | Hub and no-Hub paths parse exactly the supplied existing file and skip malformed JSON/object lines. Hub retains stricter recognized-field/encoding/resource checks with explicit errors; an incompatible installed Hub always fails closed. |
+| CLI physical-window compatibility | Legacy Fabric considered the first 120 physical lines, selected 12 qualifying stripped snippets and truncated each to 800 characters; the UI scanner considered 100 physical lines and 10 qualifying snippets. v0.1.5 lacks physical-line selection/provenance, so the full migration must not land until a verified producer API supports those windows. DNCP does not reconstruct physical lines from normalized record indices or duplicate the parser. |
 | Product acceptance | Real-history authorization, cross-source identity reconciliation, source-freshness evidence, a stable tagged consumer contract, and owner acceptance remain open. Component/prompt release tracking belongs in ALM's release gate. |
 
 These are release and behavior gates, not a request to add scanning, syncing, or
