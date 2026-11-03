@@ -111,12 +111,14 @@ source snapshots are collected before either package executes; the offline
 snapshots are hash-checked, while Git installs retain the PEP 610 provenance-only
 limitation. The transitive module loader serves relative imports only from those
 snapshots, bypassing `.pyc`; ordinary `material_core` imports and preloaded
-modules are not used by DNCP. Authenticated Git installs verify PEP 610
-version/source provenance, not post-install byte integrity; the local
-interpreter and operating system remain trusted. The offline path checks file
-hashes against evidence derived from the independently digest-pinned wheels at
-load time; this is not a signed publisher attestation, and local evidence can
-be modified.
+modules are not used by DNCP. Missing modules inside the private namespace fail
+closed instead of falling through to other import finders, and verified package
+loads are serialized while the temporary Utility alias is installed/restored.
+Authenticated Git installs verify PEP 610 version/source provenance, not
+post-install byte integrity; the local interpreter and operating system remain
+trusted. The offline path checks file hashes against evidence derived from the
+independently digest-pinned wheels at load time; this is not a signed publisher
+attestation, and local evidence can be modified.
 Neither path claims
 protection against an attacker who can alter the installed distribution and its
 evidence. The process caches its checked core, so reload after intentional updates.

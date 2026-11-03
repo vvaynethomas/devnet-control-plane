@@ -167,10 +167,12 @@ class TestMaterialCorePackage(unittest.TestCase):
 
     def test_dncp_consumer_rejects_an_incompatible_installed_core_version(self):
         from types import SimpleNamespace
-        from control_plane.material_capability import require_material_core, MaterialCapabilityError
+        from control_plane.material_capability import (
+            MaterialCapabilityError, clear_material_core_cache, require_material_core,
+        )
         fake = SimpleNamespace(version="0.2.0", read_text=lambda name: "{}")
-        require_material_core.cache_clear()
-        self.addCleanup(require_material_core.cache_clear)
+        clear_material_core_cache()
+        self.addCleanup(clear_material_core_cache)
         with patch("control_plane.material_capability.distribution", return_value=fake):
             with self.assertRaisesRegex(MaterialCapabilityError, "verified source provenance"):
                 require_material_core()

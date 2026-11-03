@@ -9,12 +9,15 @@ import py_compile
 from types import SimpleNamespace, ModuleType
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 import importlib.util
 
 from control_plane.material_capability import (
-    CORE_COMMIT, CORE_URL, CORE_VERSION, MaterialCapabilityError, require_material_core,
+    CORE_COMMIT, CORE_URL, CORE_VERSION, MaterialCapabilityError, clear_material_core_cache,
+    require_material_core,
 )
 from control_plane.material_pins import UTILITY_COMMIT
 
@@ -34,21 +37,21 @@ except PackageNotFoundError:
 
 class TestMaterialProvenance(unittest.TestCase):
     def tearDown(self):
-        require_material_core.cache_clear()
+        clear_material_core_cache()
 
     def test_same_version_wrong_source_refused_before_execution(self):
         fake = SimpleNamespace(version=CORE_VERSION, read_text=lambda name: json.dumps(
             {"url": "https://example.invalid/other", "vcs_info": {"commit_id": CORE_COMMIT}}
         ))
         with patch("control_plane.material_capability.distribution", return_value=fake):
-            require_material_core.cache_clear()
+            clear_material_core_cache()
             with self.assertRaisesRegex(MaterialCapabilityError, "verified source provenance"):
                 require_material_core()
 
     def test_unverified_same_version_local_install_refused(self):
         fake = SimpleNamespace(version=CORE_VERSION, read_text=lambda name: "{}")
         with patch("control_plane.material_capability.distribution", return_value=fake):
-            require_material_core.cache_clear()
+            clear_material_core_cache()
             with self.assertRaises(MaterialCapabilityError):
                 require_material_core()
 
@@ -60,9 +63,98 @@ class TestMaterialProvenance(unittest.TestCase):
         ))
         with patch("control_plane.material_capability.distribution",
                    side_effect=lambda name: fake_core if name == "material-core" else fake_utility):
-            require_material_core.cache_clear()
+            clear_material_core_cache()
             with self.assertRaises(MaterialCapabilityError):
                 require_material_core()
+
+    def test_material_offline_provenance_rejects_mixed_vcs_metadata(self):
+        from control_plane.material_capability import _prepare_owned
+        from control_plane.material_pins import (
+            UTILITY_SUBDIRECTORY, UTILITY_URL, UTILITY_VERSION,
+            UTILITY_WHEEL_SHA256,
+        )
+        direct = {
+            "url": f"{UTILITY_URL}.git",
+            "vcs_info": {"vcs": "git", "commit_id": "wrong-commit"},
+            "archive_info": {"hashes": {"sha256": UTILITY_WHEEL_SHA256}},
+            "subdirectory": UTILITY_SUBDIRECTORY,
+        }
+        evidence = {
+            "source_commit": UTILITY_COMMIT,
+            "artifact_sha256": UTILITY_WHEEL_SHA256,
+            "source_sha256": {},
+            "direct_url": direct,
+        }
+        fake_utility = SimpleNamespace(
+            version=UTILITY_VERSION,
+            read_text=lambda name: json.dumps(direct if name == "direct_url.json" else evidence),
+        )
+        with patch("control_plane.material_capability.distribution", return_value=fake_utility):
+            with self.assertRaisesRegex(ValueError, "ambiguous source provenance"):
+                _prepare_owned(
+                    "utility-chest-credential-patterns", UTILITY_VERSION, UTILITY_COMMIT,
+                    UTILITY_URL, UTILITY_WHEEL_SHA256, "credential_patterns", ("__init__",),
+                    UTILITY_SUBDIRECTORY,
+                )
+
+    def test_concurrent_first_material_load_is_single_flight_and_restores_alias(self):
+        import control_plane.material_capability as capability
+
+        clear_material_core_cache()
+        original_utility = ModuleType("original-credential-patterns")
+        about_to_call = [threading.Event(), threading.Event()]
+        loader_entered = threading.Event()
+        release_loader = threading.Event()
+        prepare_calls = []
+        loader_calls = []
+        results = []
+        errors = []
+        barrier = threading.Barrier(3)
+
+        def fake_prepare(*args, **kwargs):
+            prepare_calls.append(args[0])
+            return {}
+
+        def fake_load(package, namespace, sources):
+            loader_calls.append(package)
+            if package == "credential_patterns":
+                loader_entered.set()
+                if not release_loader.wait(timeout=5):
+                    raise TimeoutError("test did not release first package load")
+                return ModuleType(namespace)
+            core = ModuleType(namespace)
+            core.__version__ = CORE_VERSION
+            return core
+
+        def run(index):
+            try:
+                barrier.wait(timeout=5)
+                about_to_call[index].set()
+                results.append(require_material_core())
+            except BaseException as exc:
+                errors.append(exc)
+
+        with patch.dict(sys.modules, {"credential_patterns": original_utility}), \
+                patch.object(capability, "_prepare_owned", side_effect=fake_prepare), \
+                patch.object(capability, "load_package_from_snapshot", side_effect=fake_load):
+            workers = [threading.Thread(target=run, args=(index,)) for index in range(2)]
+            for worker in workers:
+                worker.start()
+            barrier.wait(timeout=5)
+            self.assertTrue(loader_entered.wait(timeout=5))
+            self.assertTrue(all(event.wait(timeout=5) for event in about_to_call))
+            time.sleep(0.1)
+            release_loader.set()
+            for worker in workers:
+                worker.join(timeout=5)
+                self.assertFalse(worker.is_alive())
+            self.assertIs(sys.modules["credential_patterns"], original_utility)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertIs(results[0], results[1])
+        self.assertEqual(prepare_calls, ["utility-chest-credential-patterns", "material-core"])
+        self.assertEqual(loader_calls, ["credential_patterns", "material_core"])
 
     def test_core_and_utility_execute_captured_transitive_sources_not_pyc(self):
         from control_plane.material_pins import (
@@ -142,7 +234,7 @@ class TestMaterialProvenance(unittest.TestCase):
             }
             with patch("control_plane.material_capability.distribution",
                        side_effect=distributions.__getitem__):
-                require_material_core.cache_clear()
+                clear_material_core_cache()
                 loaded = require_material_core()
 
             self.assertEqual(loaded.VALUE, "captured-core-source")
@@ -229,7 +321,7 @@ class TestMaterialProvenance(unittest.TestCase):
             (core_package / "contract.py").write_bytes(b"CHANGED_AFTER_VERIFICATION = True\n")
             with patch("control_plane.material_capability.distribution",
                        side_effect=lambda name: core if name == "material-core" else utility):
-                require_material_core.cache_clear()
+                clear_material_core_cache()
                 with self.assertRaises(MaterialCapabilityError):
                     require_material_core()
             self.assertFalse(marker.exists())
@@ -254,7 +346,7 @@ class TestMaterialProvenance(unittest.TestCase):
             with patch.object(sys, "path", [temporary, *sys.path]), patch.dict(sys.modules, {
                 "material_core": hostile, "credential_patterns": hostile_utility,
             }):
-                require_material_core.cache_clear()
+                clear_material_core_cache()
                 core = require_material_core()
                 self.assertNotEqual(core.__name__, "material_core")
                 self.assertTrue(core.digest_material(b"Goal: reuse", name="n.txt", format="text").items)

@@ -8,8 +8,12 @@ import hashlib
 from pathlib import Path
 from pathlib import PurePosixPath
 import sys
+import threading
 from types import ModuleType
 from typing import Mapping
+
+
+SNAPSHOT_LOAD_LOCK = threading.RLock()
 
 
 class _SourceBytesLoader(Loader):
@@ -45,7 +49,10 @@ class _SnapshotFinder(MetaPathFinder):
             return None
         entry = self.sources.get(relative)
         if entry is None:
-            return None
+            raise ModuleNotFoundError(
+                f"No verified source exists for {fullname!r}",
+                name=fullname,
+            )
         filename, source = entry
         is_package = relative == "__init__.py" or relative.endswith("/__init__.py")
         loader = _SourceBytesLoader(fullname, filename, source, is_package)
@@ -63,37 +70,39 @@ def load_package_from_snapshot(
     sources: Mapping[str, tuple[Path, bytes]],
 ) -> ModuleType:
     """Execute package code only from captured, caller-verified source bytes."""
-    init = sources.get("__init__.py")
-    if init is None:
-        raise ImportError(f"Verified package {package} is missing __init__.py")
+    with SNAPSHOT_LOAD_LOCK:
+        init = sources.get("__init__.py")
+        if init is None:
+            raise ImportError(f"Verified package {package} is missing __init__.py")
 
-    unload_package_snapshot(namespace)
-    finder = _SnapshotFinder(namespace, sources)
-    root_spec = finder.find_spec(namespace)
-    if root_spec is None or root_spec.loader is None:
-        raise ImportError(f"Verified package {package} has no source loader")
-    module = ModuleType(namespace)
-    module.__package__ = namespace
-    module.__path__ = []
-    module.__file__ = str(init[0])
-    module.__spec__ = root_spec
-    sys.modules[namespace] = module
-    sys.meta_path.insert(0, finder)
-    try:
-        root_spec.loader.exec_module(module)
-    except BaseException:
         unload_package_snapshot(namespace)
-        raise
-    return module
+        finder = _SnapshotFinder(namespace, sources)
+        root_spec = finder.find_spec(namespace)
+        if root_spec is None or root_spec.loader is None:
+            raise ImportError(f"Verified package {package} has no source loader")
+        module = ModuleType(namespace)
+        module.__package__ = namespace
+        module.__path__ = []
+        module.__file__ = str(init[0])
+        module.__spec__ = root_spec
+        sys.modules[namespace] = module
+        sys.meta_path.insert(0, finder)
+        try:
+            root_spec.loader.exec_module(module)
+        except BaseException:
+            unload_package_snapshot(namespace)
+            raise
+        return module
 
 
 def unload_package_snapshot(namespace: str) -> None:
-    for name in tuple(sys.modules):
-        if name == namespace or name.startswith(namespace + "."):
-            del sys.modules[name]
-    for finder in tuple(sys.meta_path):
-        if isinstance(finder, _SnapshotFinder) and finder.namespace == namespace:
-            sys.meta_path.remove(finder)
+    with SNAPSHOT_LOAD_LOCK:
+        for name in tuple(sys.modules):
+            if name == namespace or name.startswith(namespace + "."):
+                del sys.modules[name]
+        for finder in tuple(sys.meta_path):
+            if isinstance(finder, _SnapshotFinder) and finder.namespace == namespace:
+                sys.meta_path.remove(finder)
 
 
 def capture_distribution_sources(

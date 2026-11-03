@@ -1,6 +1,9 @@
 """Optional shared credential-pattern adoption and dependency-free fallback."""
 
 import json
+import importlib.abc
+import importlib.machinery
+import hashlib
 import os
 from pathlib import Path
 import py_compile
@@ -19,6 +22,7 @@ from control_plane.material_pins import (
     UTILITY_SUBDIRECTORY,
     UTILITY_URL,
     UTILITY_VERSION,
+    UTILITY_WHEEL_SHA256,
 )
 from control_plane.safety import (
     CredentialPatternsError,
@@ -26,6 +30,7 @@ from control_plane.safety import (
     _LOCAL_SECRET_RE,
     _shared_secret_re,
 )
+from control_plane.verified_package import load_package_from_snapshot, unload_package_snapshot
 
 
 class TestCredentialPatterns(unittest.TestCase):
@@ -66,6 +71,89 @@ class TestCredentialPatterns(unittest.TestCase):
         with patch("control_plane.safety.distribution", return_value=installed):
             with self.assertRaisesRegex(CredentialPatternsError, "does not match the pinned"):
                 _shared_secret_re()
+
+    def test_mixed_git_and_archive_provenance_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "credential_patterns"
+            package.mkdir()
+            source = (
+                "import re\n"
+                f"SECRET_RE = re.compile({_LOCAL_SECRET_RE.pattern!r}, flags={_LOCAL_SECRET_RE.flags})\n"
+            )
+            module = package / "__init__.py"
+            module.write_text(source, encoding="utf-8")
+            direct = {
+                "url": "file:///pinned-wheel.whl",
+                "vcs_info": {"vcs": "git", "commit_id": "wrong-commit"},
+                "archive_info": {"hashes": {"sha256": "pinned-wheel-digest"}},
+            }
+            evidence = {
+                "source_commit": UTILITY_COMMIT,
+                "artifact_sha256": "pinned-wheel-digest",
+                "source_sha256": {
+                    "credential_patterns/__init__.py": __import__("hashlib").sha256(
+                        module.read_bytes()
+                    ).hexdigest(),
+                },
+                "direct_url": direct,
+            }
+
+            class AmbiguousDistribution:
+                version = UTILITY_VERSION
+                files = [Path("credential_patterns/__init__.py")]
+
+                @staticmethod
+                def read_text(name: str) -> str:
+                    return json.dumps(direct if name == "direct_url.json" else evidence)
+
+                @staticmethod
+                def locate_file(name: str) -> Path:
+                    return root / name
+
+            with patch("control_plane.safety.distribution", return_value=AmbiguousDistribution()):
+                with self.assertRaisesRegex(CredentialPatternsError, "does not match the pinned"):
+                    _shared_secret_re()
+
+    def test_digest_verified_archive_provenance_loads_source_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "credential_patterns"
+            package.mkdir()
+            source = (
+                "import re\n"
+                f"SECRET_RE = re.compile({_LOCAL_SECRET_RE.pattern!r}, flags={_LOCAL_SECRET_RE.flags})\n"
+            ).encode()
+            (package / "__init__.py").write_bytes(source)
+            direct = {
+                "url": "file:///verified-utility.whl",
+                "archive_info": {"hashes": {"sha256": UTILITY_WHEEL_SHA256}},
+            }
+            evidence = {
+                "source_commit": UTILITY_COMMIT,
+                "artifact_sha256": UTILITY_WHEEL_SHA256,
+                "source_sha256": {
+                    "credential_patterns/__init__.py": hashlib.sha256(source).hexdigest(),
+                },
+                "direct_url": direct,
+            }
+
+            class PinnedDistribution:
+                version = UTILITY_VERSION
+                files = [Path("credential_patterns/__init__.py")]
+
+                @staticmethod
+                def read_text(name: str) -> str:
+                    return json.dumps(direct if name == "direct_url.json" else evidence)
+
+                @staticmethod
+                def locate_file(name: str) -> Path:
+                    return root / name
+
+            with patch("control_plane.safety.distribution", return_value=PinnedDistribution()):
+                loaded = _shared_secret_re()
+            self.assertEqual(loaded.pattern, _LOCAL_SECRET_RE.pattern)
+            self.assertEqual(loaded.flags, _LOCAL_SECRET_RE.flags)
 
     def test_pinned_distribution_is_loaded_outside_import_path(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -157,6 +245,42 @@ class TestCredentialPatterns(unittest.TestCase):
                 loaded = _shared_secret_re()
             self.assertEqual(loaded.pattern, _LOCAL_SECRET_RE.pattern)
             self.assertEqual(loaded.flags, _LOCAL_SECRET_RE.flags)
+
+    def test_missing_snapshot_module_does_not_fall_through_to_other_finder(self) -> None:
+        marker = []
+        namespace = "_dncp_test_missing_snapshot"
+
+        class FallbackLoader(importlib.abc.Loader):
+            def create_module(self, spec):
+                return None
+
+            def exec_module(self, module):
+                marker.append("executed")
+
+        class FallbackFinder(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == namespace + ".missing":
+                    return importlib.machinery.ModuleSpec(fullname, FallbackLoader())
+                return None
+
+        fallback = FallbackFinder()
+        sys.meta_path.append(fallback)
+        try:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                package = root / "__init__.py"
+                package.write_text("from .missing import value\n", encoding="utf-8")
+                with self.assertRaisesRegex(ModuleNotFoundError, namespace + r"\.missing"):
+                    load_package_from_snapshot(
+                        "test-package",
+                        namespace,
+                        {"__init__.py": (package, package.read_bytes())},
+                    )
+            self.assertEqual(marker, [])
+        finally:
+            if fallback in sys.meta_path:
+                sys.meta_path.remove(fallback)
+            unload_package_snapshot(namespace)
 
 
 if __name__ == "__main__":
