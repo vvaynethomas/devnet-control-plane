@@ -14,15 +14,23 @@ from unittest.mock import patch
 import urllib.request
 import warnings
 import zipfile
+from importlib.metadata import distribution, PackageNotFoundError
+
+try:
+    distribution("material-core")
+    distribution("utility-chest-credential-patterns")
+except PackageNotFoundError:
+    raise unittest.SkipTest("Install DNCP's optional material capability for format integration tests")
 
 from control_plane.cli import main
 from control_plane.digester import MaterialReference
 from control_plane.material_ingestion import (
     MAX_INPUT_BYTES, MAX_ITEMS, MAX_JSON_DEPTH, MAX_JSON_RECORDS, MAX_MEMBERS, MAX_OBSERVATIONS,
-    MaterialError, SuppliedMaterialDigester,
+    MaterialError, SuppliedMaterialDigester, digest_submission,
 )
 from control_plane.phone_home import PhoneHome, PhoneHomeError
 from control_plane.ui import ControlPlaneWorkbench, serve_control_plane
+from material_core import digest_material
 
 
 class TestMaterialIngestion(unittest.TestCase):
@@ -243,6 +251,25 @@ class TestMaterialIngestion(unittest.TestCase):
         with self.assertRaises(MaterialError):
             digester.digest(MaterialReference("text", "source", "incorrect", "input.txt"))
 
+    def test_all_supported_formats_match_dncp_adapter_output(self) -> None:
+        zip_bytes = self.archive([("notes.md", b"# Reuse\nGoal: preserve")])
+        samples = [
+            ("text", "note.txt", "Goal: reuse\nplain record".encode()),
+            ("markdown", "note.md", "# Topic\nGoal: reuse\n".encode()),
+            ("csv", "table.csv", b"name,direction\nadapter,reuse\n"),
+            ("html", "page.html", b"<p>Goal: reuse</p>"),
+            ("json", "data.json", b'{"value":"reuse","nested":[1,true]}'),
+            ("python", "code.py", b'def reusable():\n    return "static"\n'),
+            ("zip", "bundle.zip", zip_bytes),
+        ]
+        for material_format, name, raw in samples:
+            with self.subTest(format=material_format):
+                supplied = {"name": name, "format": material_format, "base64": base64.b64encode(raw).decode()}
+                payload = {"kind": "material", "material": supplied, "target": "reuse"}
+                adapted = digest_submission(payload)["digestion"]
+                core = digest_material(raw, name=name, format=material_format, target="reuse").to_dict()
+                self.assertEqual(adapted, core)
+
     def test_malformed_binary_and_sensitive_content_have_visible_gaps(self) -> None:
         for text, format in (("def invalid(", "python"), ('a,b\n"unclosed', "csv"), ("a\0b", "text"),
                              ("ghp_" + "a" * 36, "text")):
@@ -282,6 +309,13 @@ class TestMaterialIngestion(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.service.submit({**self.payload(), **change})
         self.assertEqual(self.service.list()["total"], 0)
+
+    def test_material_processing_errors_keep_dncp_http_status_mapping(self) -> None:
+        with self.assertRaises(MaterialError) as raised:
+            self.service.submit({"kind": "material", "material": {
+                "name": "unsupported.pdf", "format": "pdf", "text": "not supported",
+            }})
+        self.assertEqual(getattr(raised.exception, "status", None), 400)
 
     def test_zip_mixed_formats_provenance_no_extraction_or_nested_processing(self) -> None:
         raw = self.archive([("notes.md", b"# Topic\nGoal: safe"),

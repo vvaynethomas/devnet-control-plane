@@ -55,9 +55,20 @@ one canonical incubator root, network root, and shared writable runtime director
 for all clients. DNCP never writes knowledge records to that incubator.
 
 ### 1. Installation
-The declared package requires Python >=3.10 and no mandatory external runtime dependencies. Editable/source builds use `setuptools>=61.0` and `wheel`; the standard-library release builder is a separate path. Intended installation:
+The public base package requires Python >=3.10 and no runtime dependencies or
+private credentials. Editable/source builds use locally available
+`setuptools>=61.0` and `wheel`. Material ingestion and repository digestion
+require the optional `material` extra, which pins private `material-core`
+v0.1.1rc2 to commit `31d0661fae0a89f80290d8e645a6872431cd6dd6` and its
+Utility Chest credential-patterns dependency to commit
+`4e2a06146944b438f10525ef45c44cc101b417b5`. Fabric redaction can also use
+that shared utility independently through the optional `credential-patterns`
+extra pinned to the same immutable Utility Chest commit; without it, the public
+base retains its matching local redaction policy.
+See [the package handover](docs/material-core-package.md) for authenticated
+full-feature installation and offline artifact workflows.
 ```bash
-pip install -e .
+pip install --no-index --no-build-isolation -e .
 ```
 
 Verify CLI installation:
@@ -74,6 +85,29 @@ Open **`http://127.0.0.1:8780/`** to access all 6 tabs in your browser.
 
 Launch binds to loopback only and does not seed model evaluations or harvest
 personal chats. Explicit Interaction Lab evaluations remain available in the UI.
+
+Interaction Lab persists execution provenance **per frame variant** alongside
+its compiled prompt, component IDs, manifest digest, output, estimates, and human
+ratings. `execution_mode` distinguishes `deterministic-preview` from
+`live-llm:<requested model>`; `live_call_status` is `not-requested`, `succeeded`,
+or `failed`, with `requested_model` and a structured `live_call_error` (error
+type, safe message, and HTTP status when available). Missing credentials produce
+a preview without a live attempt. Failed calls and unusable completion content
+produce previews explicitly marked as failures, never live successes. Raw
+provider exception text is not persisted because it may contain sensitive data.
+
+The run mode is derived from all variants: homogeneous runs retain their mode,
+different modes are `mixed`, and any failed call adds `(live call failed)`.
+Output cards show their own modes and failure information; history shows the
+aggregate. Existing records without per-variant provenance display `unknown`
+on reload, regardless of their old run label. Reads do not rewrite those records,
+and human ratings do not establish missing provenance.
+
+These records support local comparison, not release acceptance or deployment
+inventory. Requested model names are not verified model snapshots; token counts
+remain estimates, and fallback latency includes the failed attempt plus preview
+generation. No real provider evaluations or native local-runtime acceptance are
+established by mocked regression tests.
 
 ### 3. Network phone-home
 
@@ -269,8 +303,16 @@ text/Markdown, CSV, HTML, JSON, Python source and ZIP containers use format adap
 and the existing phone-home inbox, with **no repo opt-in, product membership,
 agent report or bilateral acceptance**. The provisional inbox is not a second
 acceptance stage; only consequential later execution/adoption/canonical promotion
-requires human approval. Raw input stays local, with no extraction, execution,
-fetching, LLM or automatic promotion.
+requires human approval. Bounded static extraction stays local; input is never
+executed or fetched, and no LLM or automatic promotion is involved.
+
+The deterministic evidence contract and supplied-byte adapters live in the
+external [material-core](https://github.com/vvaynethomas/material-core) package,
+released as v0.1.1rc2 and pinned to commit
+`31d0661fae0a89f80290d8e645a6872431cd6dd6`. DNCP's `control_plane\material_ingestion.py`
+validates the phone-home payload and delegates to that core; phone-home still
+owns routing, receipt metadata and inbox persistence. This is a consumer boundary
+with no bundled core source. Independent licensing and ownership remain undecided.
 
 ```powershell
 devnet phone-home ingest 'C:\inputs\notes.md' --target reuse
@@ -331,10 +373,12 @@ failure rather than remote ingestion. No LLM, extractor download, external
 transmission, or paid service is needed. Detection is incomplete: review bundles
 locally and do not transmit potentially sensitive evidence indiscriminately.
 
-The shared [material-neutral contract](docs/digester-contract.md) lives in
-`control_plane\digester.py`: `digest(MaterialReference, target) -> Digestion`
-performs extraction only. `control_plane\repo_metabolizer.py` supplies the single
-repository implementation plus opt-in orchestration and cached comparison.
+The shared [material-neutral contract](docs/digester-contract.md) is implemented
+in `material_core\contract.py` and re-exported by `control_plane\digester.py` for
+compatibility. `material_core\supplied.py` implements deterministic supplied-byte
+extraction without DNCP orchestration. `control_plane\repo_metabolizer.py` remains
+the Git-aware repository extractor plus opt-in registration and cached comparison;
+it reads pinned Git objects and is not part of the pure byte-processing API.
 There is no separate `metabolizer` CLI or competing scan/review database.
 
 The versioned **material-neutral bundle** includes the repository input reference,
@@ -431,14 +475,22 @@ runtime import from a sibling checkout. No chat code is moved/refactored here.
 
 ## Packaging and Release
 
-`release.py` uses only the Python standard library to construct local artifacts declared as 0.1.0 under **DEC-0015**:
+`release.py` uses only the Python standard library to construct local artifacts
+declared as 0.1.0 under **DEC-0015**. Base builds need no core artifact
+(`python release.py --output-dir dist\devnet`). For material-capable offline
+installation, explicitly fetch/build the pinned core and validate its identity;
+DNCP never embeds it:
 ```bash
-python release.py
+python build_material_core.py --output-dir dist\material-core
+python release.py --material-core-wheel dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
+python install_material_core.py dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
+pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
+pip check
 ```
-Outputs:
-* Wheel: `dist/devnet_control_plane-0.1.0-py3-none-any.whl`
-* Source: `dist/devnet_control_plane-0.1.0.tar.gz`
-* Manifest: `dist/RELEASE_MANIFEST.json` with cryptographic SHA-256 digests.
+DNCP emits its own wheel/source archive and `RELEASE_MANIFEST.json`.
+The Material Core and Utility Chest wheels are downloaded from their
+independently digest-pinned producer releases; DNCP does not rebuild those
+products. The manifest records both exact wheel filenames and digests.
 
 **Remaining release gates:** CLI and registry installation have portable smoke coverage for both the standard-library wheel and the setuptools wheel built from its sdist. Archive timestamps still prevent assuming byte-for-byte reproducibility, and manifest Git provenance is resolved outside this repository. No tags or GitHub Releases were listed during the 2026-11-01 audit; publication elsewhere is unknown. These checks do not establish publication or operator acceptance.
 

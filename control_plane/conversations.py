@@ -23,6 +23,8 @@ from typing import Any
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
+from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
+from control_plane.conversation_hub_adapter import read_legacy_sessions, read_local_sessions
 
 
 def estimate_tokens(text: str) -> int:
@@ -51,7 +53,56 @@ class UnifiedConversationHub:
         self.data_dir = data_dir or (factory_root / "projects" / "agent-lifecycle-management" / "data")
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "conversations_hub.sqlite"
+        self._hub_api = None
+        self._hub_info: dict[str, str | None] | None = None
+        self._source_diagnostics: list[str] = []
         self._init_db()
+
+    def _get_hub_api(self):
+        if self._hub_api is not None:
+            return self._hub_api
+        if self._hub_info is not None:
+            return None
+        try:
+            self._hub_api, self._hub_info = _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code != "hub_unavailable":
+                raise
+            self._hub_info = {"implementation": "dncp-legacy-adapter", "version": None, "revision": None}
+            self._source_diagnostics.append(
+                "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 producer adapters."
+            )
+        return self._hub_api
+
+    def _read_local_sessions(
+        self,
+        source_kind: str,
+        root: Path,
+        max_sessions: int | None = None,
+        *,
+        selection_policy: str | None = None,
+        max_messages: int | None = None,
+        physical_line_limit: int | None = None,
+    ) -> list[dict[str, Any]] | None:
+        if self._get_hub_api() is None:
+            return None
+        try:
+            sessions, diagnostics, self._hub_info = read_local_sessions(
+                source_kind, root,
+                archive_key=f"dncp-local-{source_kind}",
+                max_sessions=max_sessions,
+                selection_policy=selection_policy,
+                max_messages=max_messages,
+                physical_line_limit=physical_line_limit,
+            )
+            self._source_diagnostics.extend(diagnostics)
+            return sessions
+        except (ValueError, OSError, sqlite3.Error) as exc:
+            self._source_diagnostics.append(
+                f"{source_kind}: selected source could not be read by Conversation Hub ({type(exc).__name__})."
+            )
+            return []
 
     def _init_db(self) -> None:
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
@@ -116,9 +167,20 @@ class UnifiedConversationHub:
             "created_date": created_at,
         }
 
-    def scan_antigravity(self) -> list[dict[str, Any]]:
+    def scan_antigravity(self, brain_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local Antigravity sessions."""
-        brain_root = Path(os.path.expanduser("~")) / ".gemini" / "antigravity" / "brain"
+        brain_root = brain_root or (Path(os.path.expanduser("~")) / ".gemini" / "antigravity" / "brain")
+        selected = self._read_local_sessions(
+            "antigravity",
+            brain_root,
+            max_sessions=25,
+            selection_policy="directory-first",
+        )
+        if selected is not None:
+            sessions = [session for session in selected if session["turns"]]
+            for session in sessions:
+                session["workspace"] = self.factory_root.name
+            return sessions
         sessions = []
         if not brain_root.is_dir():
             return sessions
@@ -187,12 +249,19 @@ class UnifiedConversationHub:
                 })
         return sessions
 
-    def scan_vscode_copilot(self) -> list[dict[str, Any]]:
+    def scan_vscode_copilot(self, workspace_storage_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local VS Code GitHub Copilot Chat sessions."""
-        appdata = os.environ.get("APPDATA")
-        if not appdata:
+        if workspace_storage_root is None:
+            appdata = os.environ.get("APPDATA")
+            if not appdata:
+                return []
+            workspace_storage_root = Path(appdata) / "Code" / "User" / "workspaceStorage"
+        selected = self._read_local_sessions("vscode-copilot", workspace_storage_root, max_sessions=500)
+        if selected is not None:
+            return selected
+        if not workspace_storage_root:
             return []
-        ws_storage = Path(appdata) / "Code" / "User" / "workspaceStorage"
+        ws_storage = workspace_storage_root
         if not ws_storage.is_dir():
             return []
 
@@ -255,9 +324,14 @@ class UnifiedConversationHub:
                     continue
         return sessions
 
-    def scan_copilot_cli(self) -> list[dict[str, Any]]:
+    def scan_copilot_cli(self, session_state_root: Path | None = None) -> list[dict[str, Any]]:
         """Harvest local GitHub Copilot CLI event streams."""
-        root = Path(os.path.expanduser("~")) / ".copilot" / "session-state"
+        root = session_state_root or (Path(os.path.expanduser("~")) / ".copilot" / "session-state")
+        selected = self._read_local_sessions(
+            "copilot-cli", root, max_sessions=500, max_messages=10, physical_line_limit=100,
+        )
+        if selected is not None:
+            return selected
         if not root.is_dir():
             return []
         sessions = []
@@ -305,6 +379,20 @@ class UnifiedConversationHub:
 
     def get_imported_chats(self) -> list[dict[str, Any]]:
         """Retrieve user-imported cloud chats (Microsoft Copilot, ChatGPT, Claude)."""
+        if self._get_hub_api() is not None:
+            try:
+                sessions, diagnostics, self._hub_info = read_legacy_sessions(
+                    self.db_path, archive_key="dncp-imported-chats",
+                )
+                self._source_diagnostics.extend(diagnostics)
+                return sessions
+            except ValueError as exc:
+                if "contains no imported_chats rows" in str(exc):
+                    return []
+                self._source_diagnostics.append(
+                    f"legacy-imported-chats: selected database could not be read by Conversation Hub ({type(exc).__name__})."
+                )
+                return []
         sessions = []
         with contextlib.closing(sqlite3.connect(self.db_path)) as conn:
             cur = conn.cursor()
@@ -350,6 +438,12 @@ class UnifiedConversationHub:
         model_filter: str = "",
     ) -> dict[str, Any]:
         """Aggregate, search, and calculate tokenomics across all sources."""
+        self._source_diagnostics = []
+        if self._get_hub_api() is None and not self._source_diagnostics:
+            self._source_diagnostics.append(
+                "Optional Conversation Hub is not installed; using DNCP's legacy reader for existing conversation sources. "
+                "Install devnet-control-plane[conversation-hub] to use the pinned v0.1.6 producer adapters."
+            )
         all_sessions = (
             self.scan_antigravity() +
             self.scan_vscode_copilot() +
@@ -370,7 +464,16 @@ class UnifiedConversationHub:
                 continue
             if q_lower:
                 text_to_search = (s["title"] + " " + s["model"] + " " + s["workspace"] + " " +
-                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", []))).lower()
+                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", [])) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for message in s.get("unassigned_messages", [])
+                                  ) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for turn in s.get("turns", [])
+                                      for message in turn.get("other_messages", [])
+                                  )).lower()
                 if q_lower not in text_to_search:
                     continue
             filtered.append(s)
@@ -379,6 +482,7 @@ class UnifiedConversationHub:
         total_tokens = sum(s.get("est_total_tokens", 0) for s in all_sessions)
         total_in = sum(s.get("est_input_tokens", 0) for s in all_sessions)
         total_out = sum(s.get("est_output_tokens", 0) for s in all_sessions)
+        total_unclassified = sum(s.get("est_unclassified_tokens", 0) for s in all_sessions)
         total_turns = sum(s.get("turn_count", 0) for s in all_sessions)
 
         platforms_count: dict[str, int] = {}
@@ -397,8 +501,17 @@ class UnifiedConversationHub:
                 "est_total_tokens": total_tokens,
                 "est_input_tokens": total_in,
                 "est_output_tokens": total_out,
+                "est_unclassified_tokens": total_unclassified,
                 "platforms": platforms_count,
                 "models": models_count,
+            },
+            "source_adapter": {
+                **(self._hub_info or {
+                    "implementation": "dncp-legacy-adapter",
+                    "version": None,
+                    "revision": None,
+                }),
+                "diagnostics": self._source_diagnostics,
             },
             "sessions": filtered,
         }

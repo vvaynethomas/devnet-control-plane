@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
-from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, NoReturn
+import sys
+from importlib.metadata import PackageNotFoundError, distribution
+from types import ModuleType
+from typing import Any, Callable, ContextManager, NoReturn
+from uuid import uuid4
+from .material_pins import HUB_COMMIT, HUB_VERSION, HUB_URL
 
 
 PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
+HUB_READER_REVISION = HUB_COMMIT
+HUB_READER_VERSION = HUB_VERSION
+HUB_READER_URL = f"{HUB_URL}.git"
 APPLICATION_ID = 0x41434831
 SCHEMA_VERSION = 1
 READ_BUSY_TIMEOUT_SECONDS = 1.0
@@ -21,6 +31,21 @@ MAX_OBSERVATIONS = 256
 MAX_RECORD_BYTES = 256 * 1024
 MAX_TOTAL_BYTES = 4 * 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}")
+SnapshotReader = Callable[[Path], ContextManager[sqlite3.Connection]]
+
+
+@dataclass(frozen=True)
+class ConversationHubAPI:
+    read_snapshot: Callable[..., Any]
+    read_antigravity_sessions: Callable[..., Any]
+    read_antigravity_transcript: Callable[..., Any]
+    read_vscode_copilot_sessions: Callable[..., Any]
+    read_copilot_cli_sessions: Callable[..., Any]
+    read_legacy_imported_chats: Callable[..., Any]
+    read_conversations: Callable[..., Any]
+    conversation_view: Callable[..., Any]
+    revision: str = HUB_READER_REVISION
+    version: str = HUB_READER_VERSION
 
 
 class ConversationLibraryError(ValueError):
@@ -123,8 +148,150 @@ def _validate_library_file(path: Path) -> None:
         raise ConversationLibraryError("limit_exceeded", "Library exceeds the 32 MiB consumer limit.", 413)
 
 
+def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
+    try:
+        installed = distribution("conversation-hub")
+    except PackageNotFoundError:
+        raise ConversationLibraryError(
+            "hub_unavailable",
+            "The conversation-library command requires the optional Conversation Hub package. "
+            "Install devnet-control-plane[conversation-hub] with Python 3.12+ and access to "
+            "vvaynethomas/conversation-hub.",
+            503,
+        ) from None
+    try:
+        direct_url = json.loads(installed.read_text("direct_url.json") or "")
+    except json.JSONDecodeError:
+        direct_url = None
+    vcs_info = direct_url.get("vcs_info") if isinstance(direct_url, dict) else None
+    if (
+        installed.version != HUB_READER_VERSION
+        or not isinstance(direct_url, dict)
+        or direct_url.get("url") != HUB_READER_URL
+        or not isinstance(vcs_info, dict)
+        or vcs_info.get("commit_id") != HUB_READER_REVISION
+    ):
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            f"Installed Conversation Hub does not match the pinned v{HUB_READER_VERSION} commit. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        )
+    module_names = ("model", "copilot_export", "library", "views", "sources")
+    owned_files = {str(item).replace("\\", "/") for item in (installed.files or ())}
+    if not {f"conversation_hub/{name}.py" for name in module_names} <= owned_files:
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            "Installed Conversation Hub is missing distribution-owned adapter files. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        )
+    distribution_root = Path(installed.locate_file("")).resolve()
+    package_dir = Path(installed.locate_file("conversation_hub")).resolve()
+    try:
+        package_dir.relative_to(distribution_root)
+    except ValueError:
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            "Installed Conversation Hub package directory is outside the checked distribution. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        ) from None
+    if not package_dir.is_dir():
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            "Installed Conversation Hub package directory is unavailable. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        )
+    package_name = f"_dncp_pinned_conversation_hub_{uuid4().hex}"
+    package = ModuleType(package_name)
+    package.__package__ = package_name
+    package.__path__ = [str(package_dir)]
+    package.__spec__ = importlib.machinery.ModuleSpec(package_name, loader=None, is_package=True)
+    sys.modules[package_name] = package
+    loaded: dict[str, ModuleType] = {}
+    try:
+        for module_name in module_names:
+            relative = f"conversation_hub/{module_name}.py"
+            module_path = Path(installed.locate_file(relative)).resolve()
+            try:
+                module_path.relative_to(distribution_root)
+            except ValueError:
+                raise ConversationLibraryError(
+                    "hub_incompatible",
+                    "Installed Conversation Hub files are outside the checked distribution. "
+                    "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+                    503,
+                ) from None
+            if not module_path.is_file():
+                raise ConversationLibraryError(
+                    "hub_incompatible",
+                    "Installed Conversation Hub adapter files are unavailable. "
+                    "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+                    503,
+                )
+            module_key = f"{package_name}.{module_name}"
+            spec = importlib.util.spec_from_file_location(module_key, module_path)
+            if spec is None or spec.loader is None:
+                raise ImportError("Cannot load checked Conversation Hub module")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_key] = module
+            spec.loader.exec_module(module)
+            loaded[module_name] = module
+    except (ImportError, OSError, SyntaxError):
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            "Installed Conversation Hub adapter files could not be loaded. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        ) from None
+    finally:
+        for name in tuple(sys.modules):
+            if name == package_name or name.startswith(package_name + "."):
+                del sys.modules[name]
+    required = (
+        (loaded.get("library"), "read_snapshot"),
+        (loaded.get("sources"), "read_antigravity_sessions"),
+        (loaded.get("sources"), "read_antigravity_transcript"),
+        (loaded.get("sources"), "read_vscode_copilot_sessions"),
+        (loaded.get("sources"), "read_copilot_cli_sessions"),
+        (loaded.get("sources"), "read_legacy_imported_chats"),
+        (loaded.get("library"), "read_conversations"),
+        (loaded.get("views"), "conversation_view"),
+    )
+    if not all(module is not None and callable(getattr(module, name, None)) for module, name in required):
+        raise ConversationLibraryError(
+            "hub_incompatible",
+            "Installed Conversation Hub is missing a required source or library API. "
+            "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+            503,
+        )
+    api = ConversationHubAPI(
+        read_snapshot=loaded["library"].read_snapshot,
+        read_antigravity_sessions=loaded["sources"].read_antigravity_sessions,
+        read_antigravity_transcript=loaded["sources"].read_antigravity_transcript,
+        read_vscode_copilot_sessions=loaded["sources"].read_vscode_copilot_sessions,
+        read_copilot_cli_sessions=loaded["sources"].read_copilot_cli_sessions,
+        read_legacy_imported_chats=loaded["sources"].read_legacy_imported_chats,
+        read_conversations=loaded["library"].read_conversations,
+        conversation_view=loaded["views"].conversation_view,
+    )
+    return api, {
+        "implementation": "conversation-hub",
+        "version": HUB_READER_VERSION,
+        "revision": HUB_READER_REVISION,
+    }
+
+
+def _configured_snapshot_reader() -> tuple[SnapshotReader, dict[str, str | None]]:
+    api, info = _configured_hub_api()
+    return api.read_snapshot, info
+
+
 def read_conversation_library(
-    library: Path, expected_snapshot: str | None = None,
+    library: Path,
+    expected_snapshot: str | None = None,
 ) -> dict[str, Any]:
     """Read all bounded observations, never select a current revision or follow a URI."""
     if expected_snapshot is not None and not SHA256.fullmatch(expected_snapshot):
@@ -133,14 +300,13 @@ def read_conversation_library(
         path = library.resolve(strict=True)
         _validate_library_file(path)
         # One read transaction pins a consistent view across schema and row queries.
-        with closing(sqlite3.connect(
-            path.as_uri() + "?mode=ro", uri=True,
-            timeout=READ_BUSY_TIMEOUT_SECONDS, isolation_level=None,
-        )) as connection:
+        reader, reader_info = _configured_snapshot_reader()
+        with reader(path) as connection:
             connection.execute("PRAGMA query_only = ON")
             connection.execute("PRAGMA trusted_schema = OFF")
             connection.set_progress_handler(lambda: 1, 1_000_000)
-            connection.execute("BEGIN")
+            if not connection.in_transaction:
+                connection.execute("BEGIN")
             if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
                 _incompatible()
             if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
@@ -190,7 +356,12 @@ def read_conversation_library(
         raise
     except sqlite3.Error as exc:
         error_name = getattr(exc, "sqlite_errorname", "") or ""
-        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")):
+        legacy_locked = (
+            not error_name
+            and isinstance(exc, sqlite3.OperationalError)
+            and str(exc) in {"database is locked", "database table is locked", "database schema is locked"}
+        )
+        if error_name.startswith(("SQLITE_BUSY", "SQLITE_LOCKED")) or legacy_locked:
             raise ConversationLibraryError(
                 "library_busy", "Library is busy or locked; retry after current access ends.", 503,
             ) from None
@@ -210,6 +381,7 @@ def read_conversation_library(
     return {
         "mode": "read-only-conversation-library",
         "contract": {"project": "PRJ-0006", "schema_version": SCHEMA_VERSION, "producer_revision": PRODUCER_REVISION},
+        "library_reader": reader_info,
         "library": str(path),
         "read_at": datetime.now(timezone.utc).isoformat(),
         "snapshot_sha256": snapshot,

@@ -32,11 +32,16 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+material = ["material-core @ git+https://github.com/vvaynethomas/material-core@31d0661fae0a89f80290d8e645a6872431cd6dd6"]
+credential-patterns = ["utility-chest-credential-patterns @ git+https://github.com/vvaynethomas/utility-chest.git@4e2a06146944b438f10525ef45c44cc101b417b5#subdirectory=utilities/credential-patterns"]
 mcp = [
     "mcp>=1.30,<2",
 ]
 llm = [
     "openai>=1.0.0",
+]
+conversation-hub = [
+    "conversation-hub @ git+https://github.com/vvaynethomas/conversation-hub.git@ea8d608b00aa1900132b2d2f33d90561143fa471 ; python_version >= '3.12'",
 ]
 
 [project.scripts]

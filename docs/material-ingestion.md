@@ -1,5 +1,21 @@
 # Explicit material ingestion: bounded first slice
 
+The reusable deterministic processing contract is owned by the private
+[material-core repository](https://github.com/vvaynethomas/material-core), in
+`material_core\contract.py`, `material_core\safety.py`, and
+`material_core\supplied.py`. The `material_core` package processes explicit bytes
+only; it does not depend on DNCP services or perform discovery, network access,
+execution, or persistence. It is released separately as v0.1.0; DNCP contains
+no source copy and its optional `material` extra pins commit
+`108fe9f309005ac7593fd640fce54bc196262198`. The public base works without it;
+material-dependent operations return explicit installation errors (status 503)
+without accepting or discarding the input.
+Independent licensing and ownership approval remain undecided.
+DNCP's `control_plane\material_ingestion.py` is the payload adapter: it validates
+the intake schema, decodes text/base64 and delegates to `digest_material`.
+`phone_home.py` remains responsible for intake receipt, idempotency and inbox
+storage.
+
 Explicitly supplied material goes through one local phone-home submission. A repo
 is one possible source, not a required membership or ownership boundary. Material
 format selects a suitable static adapter, not eligibility. No repo registration,
@@ -53,12 +69,13 @@ preserve caller context. Global root/data options still go before `phone-home`.
 ## Reuse and local processing
 
 Priority 1's existing phone-home check identified the existing intake as a reuse
-candidate. This implementation extends that intake and the existing
+candidate. This implementation extends that intake and the existing pure
 `Digester.digest(MaterialReference, target) -> Digestion` contract, not a new
-product/store. `SuppliedMaterialDigester` is pure extraction with byte-hash
-revision verification; persistence remains in `phone_home.sqlite`. Repository
-Git/manifest extractors remain unchanged because explicitly supplied streams
-need neither repository enumeration nor registration. Python AST, CSV, HTML,
+product/store. `material_core.digest_material(...)` is the consumer-facing
+explicit-byte API; `SuppliedMaterialDigester` verifies byte-hash revisions.
+Persistence remains in `phone_home.sqlite`. Repository Git/manifest extraction
+remains DNCP-specific because it reads pinned repository objects and requires
+the explicit opt-in orchestration described separately. Python AST, CSV, HTML,
 JSON and ZIP use Python's existing standard library (`ast`, `csv`,
 `html.parser`, `json`, `zipfile`); no third-party parser, downloaded extractor
 or LLM is required. No live external component search was performed or is

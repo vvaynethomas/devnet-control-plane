@@ -51,8 +51,12 @@ def validate_submission(payload: Any) -> dict[str, Any]:
     if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_REQUEST_BYTES:
         raise PhoneHomeError("submission exceeds 64 KiB", 413)
     if payload.get("kind") == "material":
-        from .material_ingestion import digest_submission
-        return digest_submission(payload)
+        from .material_ingestion import MaterialError, digest_submission
+        try:
+            return digest_submission(payload)
+        except MaterialError as exc:
+            setattr(exc, "status", 400)
+            raise
     allowed = {"schema_version", "kind", "title", "summary", "source_repo", "reuse_query",
                "source_session", "source_ref", "related_refs", "tags", "idempotency_key", "external_evidence"}
     if set(payload) - allowed:

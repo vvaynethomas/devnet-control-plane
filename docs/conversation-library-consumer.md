@@ -1,9 +1,15 @@
-# Explicit conversation-library consumer (DNCP-015 first slice)
+# Conversation Hub consumer integration
 
-DNCP can read an **explicitly selected** PRJ-0006 local evidence library.
-This is a CLI/adapter compatibility slice, not Fabric indexing, a Conversations UI
-migration, or a handoff implementation. Existing chat surfaces are unchanged and
-do not implicitly read this library. DNCP does not own collection or persistence.
+DNCP uses the standalone Conversation Hub's explicit-source readers for the
+existing Antigravity, VS Code Copilot, Copilot CLI, and legacy imported-chat
+conversation surfaces, and for Antigravity and Copilot CLI Fabric indexing.
+Antigravity conversation discovery, Fabric indexing, and handoff now request
+the producer's explicit directory-first selection policy to preserve DNCP's
+existing caps. DNCP can also read an **explicitly selected** PRJ-0006 local evidence
+library. This is an unaccepted development integration. The selected Hub
+dependency is a private, untrusted prerelease; its
+verified component bytes do not imply behavioral qualification or product
+acceptance.
 
 ## Verified boundary
 
@@ -26,10 +32,113 @@ which merged PRJ-0006's explicit local reader contract:
   initialization. DEC-0016 and ART-0008/0009/0010 remain draft evidence, not product
   acceptance or an approved long-term UI contract.
 
-Phone-home's bounded repository check identified existing DNCP conversation,
-Fabric and handoff modules. Reuse here extends the existing CLI without invoking
-their collectors, creating another parser/store, or adopting a new dependency.
-No sibling-checkout import or producer runtime invocation is needed.
+The standalone `conversation-hub` package is pinned as an **optional dependency**
+to the exact v0.1.6 prerelease source commit
+[`ea8d608b00aa1900132b2d2f33d90561143fa471`](https://github.com/vvaynethomas/conversation-hub/commit/ea8d608b00aa1900132b2d2f33d90561143fa471).
+The published wheel
+`conversation_hub-0.1.6-py3-none-any.whl` was independently checked at
+SHA-256 `bb0da00debc8c13b166030b14eb26e3100afff65318ca1dd7a3b68dbc8448c16`.
+It remains a private, untrusted prerelease: its release metadata explicitly says
+`trusted: false`, `ready_for_human_release_decision: false`, and evaluation is
+not complete. Install this private extra with Python 3.12+ and repository access:
+
+```powershell
+python -m pip install '.[conversation-hub]'
+```
+
+This extra remains independent of `material`: install both explicitly with
+`python -m pip install '.[material,conversation-hub]'`. Both the standard
+setuptools and custom release wheels preserve the Hub commit and Python marker;
+neither private repository is required for a public base install.
+
+The extra is marker-gated to Python >=3.12 because that is the producer's declared
+minimum. DNCP's base install remains dependency-free and supports Python >=3.10;
+unrelated features continue working on 3.10/3.11. The
+`conversation-library` command requires the extra and returns `hub_unavailable`
+with installation guidance if it is absent; it does not silently use a DNCP
+fallback reader.
+
+When installed, the consumer opens the library through the exact pinned
+commit's `conversation_hub.library.read_snapshot(Path)` API, which provides a
+validated read-only connection inside a transaction. DNCP keeps additional
+bounded record and schema checks for its output contract. At runtime, DNCP
+verifies the installed distribution version, VCS source URL, and full commit
+from its `direct_url.json`, then loads all required Hub modules directly from
+files owned by that checked distribution under a private module namespace. It
+does not resolve `conversation_hub` through `sys.path` or reuse an already-loaded
+module; absent or incompatible distribution files fail explicitly. PEP 610 metadata records
+installation provenance, not byte integrity: it does not prove that installed
+files were not modified after installation. The wheel digest above is recorded
+as independent release verification only; DNCP does not download the wheel or
+enforce that digest at runtime. The output's `library_reader` field
+reports the Hub version and recorded commit used. The same checked distribution
+supplies explicit-root Antigravity, VS Code Copilot, Copilot CLI, legacy imported
+chat, library-read, and redacted-view APIs. DNCP passes the roots it already
+selects; it adds no new home-directory discovery, watcher, background scan, or
+network transmission. Existing DNCP roots and per-surface limits are retained where defined: the
+Conversations aggregator selects at most 25 Antigravity directories, 500 VS Code
+files, and 500 CLI event files; Fabric selects at most 20 Antigravity directories
+and 25 CLI files; handoff selects at most 20 Antigravity directories. The current
+Hub Antigravity reader supports `selection_policy="directory-first"`: DNCP passes
+this option for each migrated Antigravity surface, so the producer sorts session
+directories by directory mtime, applies the existing cap, and then checks
+transcript availability. The v0.1.4 diagnostic correction remains in v0.1.6
+without changing directory-first selection behavior. DNCP explicitly requests
+directory-first rather than relying on the reader's default policy. VS Code and
+CLI omissions and producer limitations are included in diagnostics or logs.
+Legacy imported-chat SQLite reads are read-only.
+Root readers explicitly opt into `malformed_sources="skip-file"`: malformed
+selected files are diagnosed and valid siblings retained, without refilling
+selected slots. Source path/I/O and file/root/event/nesting resource failures
+remain fatal. Handoff's direct parser uses `read_antigravity_transcript` with
+`malformed_lines="skip-line"` to read exactly the requested existing file,
+including off-layout or beyond-cap selections. Standard paths retain their
+session-directory identity; off-layout selection uses a deterministic URI hash
+as the caller-supplied identifier. Skipped line diagnostics preserve raw-byte
+provenance; recognized-field and resource errors remain explicit. Local root and
+exact-file readers opt into `utf8_errors="replace"`, preserving legacy replacement
+decoding with safe replacement counts and exact raw-byte provenance. CLI opts
+into `timestamp_policy="legacy-string"` for the first truthy timestamp's
+`str(value)[:19]` display, without claiming temporal validity.
+CLI manager and Fabric request producer physical-line windows of 100 and 120
+respectively. Blank/unsupported lines consume slots; JSON beyond the window is
+not parsed or exposed, but full-byte/nonblank-event resource checks still apply.
+Fabric uses `conversation_view(content_limit=800, strip_content=True)` to bound
+original stripped content before redaction. Complete tokens crossing that source
+boundary are fully replaced; no ordinary post-boundary source text is included.
+The replacement label may make the displayed result longer than 800 characters.
+These are transient read-only views, never persisted into the producer library.
+Local-source responses keep filesystem paths in `source_path` and retain Hub's
+original file URI separately as `source_uri`. CLI Fabric indexing and conversation
+presentation preserve the redacted producer message order, including unassigned
+preludes and attached tool/unknown messages. Search includes that visible content
+without relabeling it as user or assistant dialogue.
+Local token totals include redacted tool/system/unknown content in a separate
+`est_unclassified_tokens` estimate, not an invented input/output split. Known
+user/assistant roles outside dialogue turns remain classifiable. CLI sessions
+use their first qualifying redacted message as the title regardless of role,
+from permitted display messages only, rather than fabricating a dialogue
+turn or exposing a later excluded prompt through metadata. Manager CLI eligibility
+uses only string `message`/`content` values from producer-parsed source records;
+Fabric retains the producer's additional text/dictionary support. Manager CLI
+estimates use original qualifying string lengths, without returning raw strings,
+over the selected source window including messages beyond the ten displayed
+snippets; title, dialogue and search remain display-bounded.
+Imported-chat and no-Hub
+token-estimation behavior is unchanged.
+Conversation copy controls carry JSON-encoded text in HTML-escaped data
+attributes, never interpolate transcript content into JavaScript. Literal
+backslashes, template expressions, quotes and line breaks remain clipboard
+data. Public base compatibility is checked on actual Python 3.10/3.11 without
+the optional Hub; Python 3.10's SQLite lock diagnostics use an exact-message
+compatibility check where error-name attributes are unavailable.
+Without the optional dependency, existing DNCP readers remain as a logged/visible
+compatibility path. An installed but
+mismatched package fails explicitly and does not fall back.
+
+The separate `conversation-library` CLI requires the optional extra and only
+opens its caller-supplied library path. It does not invoke local source readers,
+collectors, or network access.
 
 ## Explicit local use
 
@@ -80,6 +189,8 @@ stderr, and emit no partial stdout or imported content:
 
 | Code | Meaning |
 | :--- | :--- |
+| `hub_unavailable` | Optional private Conversation Hub extra is not installed. Install `devnet-control-plane[conversation-hub]` with Python 3.12+ and repository access. No local reader fallback is used. |
+| `hub_incompatible` | Installed extra is not v0.1.6 at the configured full commit or lacks a required library/source/view API. Reinstall the optional extra. |
 | `invalid_request` | Malformed expected SHA-256. |
 | `unavailable` | Selected file missing, unreadable, corrupt, or query budget exceeded. No database is created. |
 | `schema_incompatible` | Unmarked, unsupported application/schema/record shape, inconsistent observation identity/provenance, or missing revision/export reference. No migration attempted. |
@@ -93,20 +204,31 @@ and all observations. This provides a single SQLite snapshot; a concurrent WAL
 writer may commit without changing the rows visible to the reader. A busy/locked
 error is reported as `library_busy`, not hidden as an empty collection. Unmarked,
 unknown and future application/schema identifiers are rejected before row use;
-the consumer never initializes or migrates the producer database. SQLite VM
-execution is capped at one million steps. Do not copy the library while it is
-being written; the producer has no live-library backup protocol. DNCP never
-checkpoints, repairs, changes permissions, or writes its library. This is
-snapshot consistency, not a backup or recovery protocol.
+the pinned Hub reader and consumer never initialize or migrate the producer
+database. SQLite VM execution is capped at one million steps. Do not copy the
+library while it is being written; the producer has no live-library backup
+protocol. DNCP never checkpoints, repairs, changes permissions, or writes its
+library. This is snapshot consistency, not a backup or recovery protocol.
 
 ## Validation and remaining work
 
-`python -m unittest discover -s tests -p test_conversation_library.py -v` uses only
-temporary synthetic libraries matching the producer's DDL. It covers preserved
-branches/unknowns/locators/revisions, deletion and stale snapshots, unavailable,
-incompatible/unmarked input, exact byte/count limits, redacted busy diagnostics,
-one consistent WAL read during a concurrent writer, and blocked collection,
-service construction, network and subprocess calls.
+`python -m unittest tests.test_conversation_hub_adapter tests.test_conversation_library -v`
+uses temporary synthetic source files/databases and library fixtures only. It
+covers optional-package fallback, exact-distribution loading, source diagnostics,
+Fabric/handoff projections, UI diagnostic escaping, stale/unavailable/schema
+errors, bounded reads, and concurrent WAL snapshot behavior. The same tests pass
+without the optional package (with its package-integration cases skipped) and
+with exact commit `ea8d608b00aa1900132b2d2f33d90561143fa471` installed into a
+temporary target directory. The downloaded release wheel hash matched the
+published digest; the integration test exercises the VCS-commit install so its
+PEP 610 metadata matches the pin. No real
+conversation directories or histories were read. Hub-backed validation ran on
+Python 3.14.2 (57 tests passed). No-extra validation and compilation ran on actual
+Python 3.10.22 and 3.11.18 (38 tests passed, 19 optional-package cases skipped
+on each). Cross-platform real-history acceptance is not established.
+Fresh base-package installations in isolated Python 3.10/3.11 environments also
+passed installed UI/handoff imports with Hub absent, using only the public PyPI
+build-tool index and no private-package installation.
 
 On 2026-11-02, a cross-repository compatibility probe used the actual producer
 modules at `11c362c621727a331a1ecf9ffee40220d8a6d373` plus its authored synthetic
@@ -122,8 +244,32 @@ The earlier adapter probe against the pre-PR-39 producer revision is superseded
 for this contract check; its installed-wheel check remains separate packaging
 evidence, not validation of the new observation timestamp or snapshot API.
 
-Fabric/Conversations/Handoff wiring, an approved longer-term consumer contract,
-real-history authorization and acceptance, cross-source identity reconciliation,
-and source-freshness evidence remain open. No watcher, sync, background scan,
-automatic handoff, transmission, producer change, or complete DNCP-015 acceptance
-is delivered by this slice.
+## Remaining release and acceptance gates
+
+The v0.1.6 prerelease source APIs provide explicit-root Antigravity, VS Code Copilot,
+Copilot CLI, legacy imported-chat reads, conversation reads, and redacted views.
+Synthetic tests exercise all four producer readers and the migrated consumer
+surfaces without opening a real history. Remaining boundaries are:
+
+| Area | Remaining gate |
+| :--- | :--- |
+| Dependency pin | v0.1.6 is pinned to the exact source commit; the prerelease tag is mutable, private, and explicitly untrusted/not ready for a human release decision. Promotion and product qualification remain open. Python >=3.12 remains a Hub-extra requirement; DNCP no-extra tests and compilation have passed on actual 3.10/3.11. The wheel digest is not checked at runtime. |
+| Producer diagnostics | DNCP uses v0.1.6's explicit directory-first Antigravity policy and malformed-source isolation. Coverage, physical-window/decoding diagnostics, selected-slot/no-refill semantics and resource failures are covered with synthetic fixtures. |
+| Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: v0.1.6 offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
+| Fabric / UI semantics | Fabric indexing and the existing UI remain DNCP responsibilities. Token estimates remain DNCP heuristics, not Hub metrics. Producer limits and unversioned-source limitations are exposed through diagnostics; this is not complete history or identity reconciliation. |
+| Handoff | Discovery uses Hub's directory-first projection; parsing uses its bounded exact-file API, preserving off-layout and beyond-cap explicit selection. DNCP retains handoff Markdown and selection UI. No automatic handoff or transmission is added. |
+| Malformed-source compatibility | v0.1.6 opt-in per-file failure policy retains valid selected siblings without cap refill or bound evasion. Strict producer defaults remain unchanged. |
+| Direct transcript compatibility | Hub and no-Hub paths parse exactly the supplied existing file and skip malformed JSON/object lines. Hub retains stricter recognized-field/resource checks with explicit errors; an incompatible installed Hub always fails closed. |
+| CLI physical-window compatibility | Fabric uses 120 physical lines, 12 qualifying excerpts, original-source 800-character limits and boundary-safe redaction. Manager/UI/search uses 100 physical lines and the first 10 qualifying string message/content values, retaining truthful roles/order; estimates count all qualifying original string lengths in that window. Producer owns physical selection and raw evidence; no consumer parser or normalized-index reconstruction is used. |
+| UTF-8 replacement compatibility | Local root/exact-file reads explicitly request producer replacement decoding, including bytes beyond CLI windows. Raw-byte/hash evidence, replacement diagnostics and global resource bounds remain intact; producer defaults remain strict. |
+| CLI timestamp display | Explicit legacy-string projection preserves first truthy JSON timestamp display; numeric/object values are not silently interpreted as dates. |
+| Product acceptance | Real-history authorization, cross-source identity reconciliation, source-freshness evidence, a stable tagged consumer contract, and owner acceptance remain open. Component/prompt release tracking belongs in ALM's release gate. |
+
+These are release and behavior gates, not a request to add scanning, syncing, or
+handoff features to the Hub without separate approval. Component/prompt release
+tracking belongs in ALM's release gate, not this consumer. An approved longer-term
+consumer contract, continuing private package access, real-history authorization
+and acceptance, cross-source identity reconciliation, and source-freshness
+evidence remain open. No watcher, background scan, automatic handoff, transmission,
+producer change, or complete DNCP-015 acceptance is delivered by this development
+integration.
