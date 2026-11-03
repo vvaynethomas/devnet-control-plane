@@ -221,6 +221,9 @@ conversation directories or histories were read. Hub-backed validation ran on
 Python 3.14.2 (57 tests passed). No-extra validation and compilation ran on actual
 Python 3.10.22 and 3.11.18 (38 tests passed, 19 optional-package cases skipped
 on each). Cross-platform real-history acceptance is not established.
+Fresh base-package installations in isolated Python 3.10/3.11 environments also
+passed installed UI/handoff imports with Hub absent, using only the public PyPI
+build-tool index and no private-package installation.
 
 On 2026-11-02, a cross-repository compatibility probe used the actual producer
 modules at `11c362c621727a331a1ecf9ffee40220d8a6d373` plus its authored synthetic
