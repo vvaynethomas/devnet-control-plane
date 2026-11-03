@@ -121,6 +121,51 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(turns[0]["user_prompt"], "hello synthetic")
         self.assertEqual(turns[0]["assistant_responses"], ["synthetic reply"])
 
+    def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for source-adapter integration coverage")
+            raise
+
+        expected = {
+            "session%20literal": "synthetic percent-name prompt",
+            "session with space": "synthetic space-name prompt",
+        }
+        for index, (session_name, prompt) in enumerate(expected.items()):
+            transcript = (
+                self.brain_root / session_name / ".system_generated" / "logs" / "transcript.jsonl"
+            )
+            transcript.parent.mkdir(parents=True)
+            transcript.write_text(
+                json.dumps({
+                    "type": "USER_INPUT",
+                    "content": f"<USER_REQUEST>{prompt}</USER_REQUEST>",
+                    "created_at": "2025-01-01T10:00:00Z",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            session_dir = transcript.parent.parent.parent
+            os.utime(session_dir, (1_700_000_000 + index, 1_700_000_000 + index))
+
+        with patch("control_plane.handoff.os.path.expanduser", return_value=str(self.home)):
+            discovered = discover_antigravity_sessions()
+            turns_by_session = {
+                session["session_id"]: parse_session_turns(Path(session["transcript_path"]))
+                for session in discovered
+                if session["session_id"] in expected
+            }
+
+        self.assertEqual(set(turns_by_session), set(expected))
+        for session_name, prompt in expected.items():
+            transcript_path = Path(
+                next(session["transcript_path"] for session in discovered if session["session_id"] == session_name)
+            )
+            self.assertTrue(transcript_path.is_file())
+            self.assertEqual(transcript_path.parent.parent.parent.name, session_name)
+            self.assertEqual(turns_by_session[session_name][0]["user_prompt"], prompt)
+
     def test_base_install_keeps_legacy_readers_for_explicit_synthetic_sources(self) -> None:
         hub = UnifiedConversationHub(data_dir=self.root / "dncp-data")
         with patch.object(hub, "_get_hub_api", return_value=None):

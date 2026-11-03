@@ -16,7 +16,7 @@ import re
 import subprocess
 import sys
 from typing import Any
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 from urllib.request import url2pathname
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
@@ -31,7 +31,7 @@ def _local_source_path(uri: str) -> Path:
     parsed = urlsplit(uri)
     if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
         raise ValueError("Conversation Hub returned a non-local source URI for a local transcript")
-    return Path(url2pathname(unquote(parsed.path)))
+    return Path(url2pathname(parsed.path))
 
 
 def _get_git_state(repo_dir: Path) -> dict[str, str]:
