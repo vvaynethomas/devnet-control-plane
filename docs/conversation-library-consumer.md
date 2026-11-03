@@ -101,9 +101,12 @@ Local token totals include redacted tool/system/unknown content in a separate
 user/assistant roles outside dialogue turns remain classifiable. CLI sessions
 use their first qualifying redacted message as the title regardless of role,
 from permitted display messages only, rather than fabricating a dialogue
-turn or exposing a later excluded prompt through metadata. CLI estimates cover
-all qualifying messages in the selected source window, including messages beyond
-the ten displayed snippets; title, dialogue and search remain display-bounded.
+turn or exposing a later excluded prompt through metadata. Manager CLI eligibility
+uses only string `message`/`content` values from producer-parsed source records;
+Fabric retains the producer's additional text/dictionary support. Manager CLI
+estimates use original qualifying string lengths, without returning raw strings,
+over the selected source window including messages beyond the ten displayed
+snippets; title, dialogue and search remain display-bounded.
 Imported-chat and no-Hub
 token-estimation behavior is unchanged.
 Conversation copy controls carry JSON-encoded text in HTML-escaped data

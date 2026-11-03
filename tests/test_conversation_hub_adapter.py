@@ -311,8 +311,10 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(session["turns"], [])
         self.assertEqual(session["title"], session["messages"][0]["content"][:90])
         self.assertNotIn(synthetic_secret, session["title"])
-        expected = sum(max(1, len(message["content"].strip()) // 4)
-                       for message in session["messages"])
+        expected = sum(len(text) // 4 for text in (
+            f"unknownneedle synthetic CLI activity {synthetic_secret}",
+            "toolneedle synthetic tool-only content",
+        ))
         self.assertGreater(expected, 0)
         for value in (session, result["summary"]):
             self.assertEqual(value["est_input_tokens"], 0)
@@ -425,6 +427,47 @@ class ConversationHubAdapterTests(unittest.TestCase):
         lines.append(json.dumps({"message": "line120 Fabric boundary synthetic event"}) + "\n")
         lines.append("{malformed beyond both physical windows}\n")
         (self.cli_root / "session-b" / "events.jsonl").write_text("".join(lines), encoding="utf-8")
+
+    def test_cli_manager_string_eligibility_differs_from_fabric_without_raw_leaks(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for record eligibility")
+            raise
+        secret = "ghp_" + "Z" * 80
+        strings = [f"string snippet {index:02d} synthetic content" for index in range(11)]
+        strings[0] += f" {secret}"
+        events = [
+            {"text": "textonlyneedle synthetic content"},
+            {"message": {"nested": "dictneedle synthetic content"}},
+            *[{"role": "tool", "message": text} for text in strings],
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        hub = UnifiedConversationHub(data_dir=self.root / "eligibility-data")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            for query in ("textonlyneedle", "dictneedle", secret, "snippet 10"):
+                self.assertEqual(hub.get_all_conversations(query=query)["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual(len(session["messages"]), 10)
+        self.assertTrue(session["title"].startswith("string snippet 00"))
+        self.assertNotIn(secret, json.dumps(session))
+        expected = sum(len(text.strip()) // 4 for text in strings)
+        self.assertEqual(session["est_total_tokens"], expected)
+        self.assertEqual(session["est_unclassified_tokens"], expected)
+        self.assertEqual(result["summary"]["est_total_tokens"], expected)
+        with patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            body = _harvest_copilot_sessions()[0]["body"]
+        self.assertIn("textonlyneedle", body)
+        self.assertIn("dictneedle", body)
+        self.assertNotIn(secret, body)
 
     def test_no_hub_cli_physical_line_windows_exclude_outside_malformed_content(self) -> None:
         self._write_cli_physical_window_fixture()
