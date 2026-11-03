@@ -530,6 +530,28 @@ class ConversationHubAdapterTests(unittest.TestCase):
                 self.assertIn("\ufffd", records[0]["body"])
                 self.assertNotIn("beyond both windows", records[0]["body"])
 
+    def test_no_hub_cli_timestamps_preserve_first_truthy_value_display(self) -> None:
+        path = self.cli_root / "session-b" / "events.jsonl"
+        for first, later in (
+            (1735725600000, "2025-01-01T11:00:00Z"),
+            ("2025-01-01T11:00:00Z", 1735725600000),
+            ({"synthetic": "timestamp"}, 42),
+        ):
+            with self.subTest(first=first):
+                path.write_text("\n".join(json.dumps(event) for event in (
+                    {"timestamp": first, "message": "synthetic timestamp prompt"},
+                    {"timestamp": later, "message": "synthetic timestamp answer"},
+                )) + "\n", encoding="utf-8")
+                hub = UnifiedConversationHub(data_dir=self.root / "timestamp-legacy")
+                with patch.object(hub, "_get_hub_api", return_value=None):
+                    sessions = hub.scan_copilot_cli(self.cli_root)
+                self.assertEqual(sessions[0]["created_date"], str(first)[:19])
+                unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+                with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+                     patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+                    fabric = _harvest_copilot_sessions()
+                self.assertEqual(fabric[0]["created_date"], str(first)[:19])
+
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
             _configured_hub_api()
