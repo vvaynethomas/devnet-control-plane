@@ -26,6 +26,8 @@ MATERIAL_CORE_NAME = "material-core"
 MATERIAL_CORE_VERSION = "0.1.0"
 MATERIAL_CORE_COMMIT = "108fe9f309005ac7593fd640fce54bc196262198"
 MATERIAL_CORE_REQUIREMENT = f"material-core @ git+https://github.com/vvaynethomas/material-core@{MATERIAL_CORE_COMMIT}"
+HUB_COMMIT = "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2"
+HUB_REQUIREMENT = f"conversation-hub @ git+https://github.com/vvaynethomas/conversation-hub.git@{HUB_COMMIT}"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -117,6 +119,8 @@ License: MIT
 Requires-Python: >=3.10
 Provides-Extra: material
 Requires-Dist: {MATERIAL_CORE_REQUIREMENT} ; extra == "material"
+Provides-Extra: conversation-hub
+Requires-Dist: {HUB_REQUIREMENT} ; python_version >= "3.12" and extra == "conversation-hub"
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -249,7 +253,8 @@ def build_release(output_dir: Path, material_core_wheel: Path | None = None) -> 
         "runtime_requirements": {
             "python": ">=3.10",
             "dependencies": [],
-            "optional_extras": [MATERIAL_CORE_REQUIREMENT, "openai>=1.0.0", "mcp>=1.30,<2"],
+            "optional_extras": [MATERIAL_CORE_REQUIREMENT, HUB_REQUIREMENT + ' ; python_version >= "3.12"',
+                                "openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "material_core_artifact": core_artifact,
         "material_core_source_commit": MATERIAL_CORE_COMMIT,

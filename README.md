@@ -455,7 +455,7 @@ DNCP never embeds it:
 ```bash
 python build_material_core.py --output-dir dist\material-core
 python release.py --material-core-wheel dist\material-core\material_core-0.1.0-py3-none-any.whl --output-dir dist\devnet
-pip install --no-index dist\material-core\material_core-0.1.0-py3-none-any.whl
+python install_material_core.py dist\material-core\material_core-0.1.0-py3-none-any.whl
 pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
 pip check
 ```

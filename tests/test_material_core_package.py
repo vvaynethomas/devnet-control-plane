@@ -79,7 +79,10 @@ class TestMaterialCorePackage(unittest.TestCase):
     def test_dncp_consumer_rejects_an_incompatible_installed_core_version(self) -> None:
         root = Path(__file__).resolve().parents[1]
         script = (
-            "import material_core; material_core.__version__ = '0.2.0'; "
+            "from unittest.mock import patch; "
+            "from types import SimpleNamespace; "
+            "d=SimpleNamespace(version='0.2.0',read_text=lambda n: '{}'); "
+            "p=patch('control_plane.material_capability.distribution', return_value=d); p.start(); "
             "import control_plane.material_ingestion"
         )
         result = subprocess.run(

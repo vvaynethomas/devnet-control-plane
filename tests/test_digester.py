@@ -242,7 +242,8 @@ class TestRepositoryDigester(unittest.TestCase):
         venv.EnvBuilder(with_pip=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
-        subprocess.run([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])],
+        subprocess.run([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
+                        str(core["wheel"])],
                        cwd=self.root, check=True, capture_output=True, timeout=60)
         subprocess.run([str(python), "-m", "pip", "install", "--no-index", "--no-deps", wheel],
                        cwd=self.root, check=True, capture_output=True, timeout=60)

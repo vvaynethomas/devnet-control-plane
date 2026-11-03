@@ -36,6 +36,11 @@ The earlier v0.1.0 candidate is not used. Install this private extra with Python
 python -m pip install '.[conversation-hub]'
 ```
 
+This extra remains independent of `material`: install both explicitly with
+`python -m pip install '.[material,conversation-hub]'`. Both the standard
+setuptools and custom release wheels preserve the Hub commit and Python marker;
+neither private repository is required for a public base install.
+
 The extra is marker-gated to Python >=3.12 because that is the producer's declared
 minimum. DNCP's base install remains dependency-free and supports Python >=3.10;
 unrelated features continue working on 3.10/3.11. The
@@ -174,8 +179,8 @@ These are interface/behavior gates, not a request to add scanning, syncing, or
 handoff features to the Hub without separate approval. Component/prompt release
 tracking belongs in ALM's release gate, not this consumer.
 
-An approved longer-term consumer contract, corrected immutable standalone-hub
-commit and package access, real-history authorization and acceptance, cross-source
+An approved longer-term consumer contract, continuing private package access,
+real-history authorization and acceptance, cross-source
 identity reconciliation, and source-freshness evidence remain open. No watcher,
 sync, background scan, automatic handoff, transmission, producer change, or
 complete DNCP-015 acceptance is delivered by this slice.

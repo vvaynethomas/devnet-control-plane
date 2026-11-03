@@ -7,27 +7,24 @@ import binascii
 from typing import Any
 from .material_capability import require_material_core
 
-require_material_core()
-
-from material_core import (
-    EXTENSIONS,
-    FORMATS,
-    MAX_GROUPS,
-    MAX_INPUT_BYTES,
-    MAX_ITEMS,
-    MAX_JSON_DEPTH,
-    MAX_JSON_POINTER_CHARS,
-    MAX_JSON_RECORDS,
-    MAX_MEMBERS,
-    MAX_MEMBER_BYTES,
-    MAX_OBSERVATIONS,
-    MAX_RATIO,
-    MAX_TOTAL_BYTES,
-    MaterialError,
-    SuppliedMaterialDigester,
-    digest_material,
-)
-from material_core.safety import SECRET_RE
+_core = require_material_core()
+EXTENSIONS = _core.EXTENSIONS
+FORMATS = _core.FORMATS
+MAX_GROUPS = _core.MAX_GROUPS
+MAX_INPUT_BYTES = _core.MAX_INPUT_BYTES
+MAX_ITEMS = _core.MAX_ITEMS
+MAX_JSON_DEPTH = _core.MAX_JSON_DEPTH
+MAX_JSON_POINTER_CHARS = _core.MAX_JSON_POINTER_CHARS
+MAX_JSON_RECORDS = _core.MAX_JSON_RECORDS
+MAX_MEMBERS = _core.MAX_MEMBERS
+MAX_MEMBER_BYTES = _core.MAX_MEMBER_BYTES
+MAX_OBSERVATIONS = _core.MAX_OBSERVATIONS
+MAX_RATIO = _core.MAX_RATIO
+MAX_TOTAL_BYTES = _core.MAX_TOTAL_BYTES
+MaterialError = _core.MaterialError
+SuppliedMaterialDigester = _core.SuppliedMaterialDigester
+digest_material = _core.digest_material
+SECRET_RE = _core.safety.SECRET_RE
 
 __all__ = [
     "EXTENSIONS",

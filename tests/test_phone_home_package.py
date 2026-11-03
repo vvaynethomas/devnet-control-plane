@@ -13,6 +13,7 @@ import zipfile
 import test_phone_home as fixtures
 import build_material_core
 import release
+from pip._vendor.packaging.requirements import Requirement
 
 
 class TestPhoneHomePackage(unittest.TestCase):
@@ -40,10 +41,20 @@ class TestPhoneHomePackage(unittest.TestCase):
                                    if line.startswith("Requires-Dist: material-core"))
                 self.assertIn(release.MATERIAL_CORE_COMMIT, requirement)
                 self.assertIn('extra == "material"', requirement)
+                hub_requirement = next(line for line in metadata.splitlines()
+                                       if line.startswith("Requires-Dist: conversation-hub"))
+                self.assertIn(release.HUB_COMMIT, hub_requirement)
+                self.assertIn('extra == "conversation-hub"', hub_requirement)
+                self.assertIn('python_version >= "3.12"', hub_requirement)
+                hub_marker = Requirement(hub_requirement.removeprefix("Requires-Dist: ")).marker
+                for version in ("3.10", "3.11"):
+                    self.assertFalse(hub_marker.evaluate({"python_version": version, "extra": "conversation-hub"}))
+                self.assertTrue(hub_marker.evaluate({"python_version": "3.12", "extra": "conversation-hub"}))
             self.run_command([str(python), "-m", "pip", "install", "--no-index", str(wheel)])
             self.run_command([str(python), "-m", "pip", "check"])
             self.run_command([str(python), "-I", "-c",
                               "import importlib.util; assert importlib.util.find_spec('material_core') is None; "
+                              "assert importlib.util.find_spec('conversation_hub') is None; "
                               "from control_plane.fabric import FabricIndex; "
                               "from control_plane.mcp_server import tool_contracts; assert tool_contracts(); "
                               "from control_plane.ui import ControlPlaneWorkbench; "
@@ -53,6 +64,12 @@ class TestPhoneHomePackage(unittest.TestCase):
                               "except MaterialCapabilityError as e:\n"
                               " assert e.status == 503; assert '[material]' in str(e)\n"
                               "else: raise AssertionError('material must fail, not be discarded')"])
+            self.run_command([str(python), "-I", "-c",
+                              "from control_plane.conversation_library import _configured_snapshot_reader, ConversationLibraryError; "
+                              "\ntry: _configured_snapshot_reader()\n"
+                              "except ConversationLibraryError as e:\n"
+                              " assert e.code=='hub_unavailable'; assert '[conversation-hub]' in str(e)\n"
+                              "else: raise AssertionError('hub must not silently fall back')"])
             for alias in ("devnet", "devnet-control-plane"):
                 executable = scripts / (alias + (".exe" if sys.platform == "win32" else ""))
                 self.run_command([str(executable), "--version"])
@@ -114,8 +131,25 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertNotEqual(missing.returncode, 0)
                 self.assertIn("Material capability is not installed", missing.stderr)
                 self.assertIn("devnet-control-plane[material]", missing.stderr)
-                self.run_command([str(python), "-m", "pip", "install", "--no-index",
+                self.run_command([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])])
+                unverified = subprocess.run(
+                    [str(python), "-I", "-c", "from control_plane.material_capability import require_material_core; require_material_core()"],
+                    cwd=self.root, capture_output=True, text=True, timeout=30,
+                )
+                self.assertNotEqual(unverified.returncode, 0)
+                self.assertIn("verified source provenance", unverified.stderr)
+                self.run_command([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
                                   str(core["wheel"])])
+                self.run_command([str(python), "-I", "-c",
+                                  "from importlib.metadata import distribution; from pathlib import Path; "
+                                  "from control_plane.material_capability import require_material_core,MaterialCapabilityError; "
+                                  "p=Path(distribution('material-core').locate_file('material_core/supplied.py')); "
+                                  "raw=p.read_bytes(); p.write_bytes(raw+b'\\n# synthetic change\\n'); "
+                                  "\ntry:\n"
+                                  " try: require_material_core()\n"
+                                  " except MaterialCapabilityError: pass\n"
+                                  " else: raise AssertionError('modified offline bytes accepted')\n"
+                                  "finally: p.write_bytes(raw)\n"])
                 self.run_command([str(python), "-m", "pip", "check"])
                 core_version = self.run_command([
                     str(python), "-c",
@@ -185,7 +219,8 @@ class TestPhoneHomePackage(unittest.TestCase):
         venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
-        self.run_command([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])])
+        self.run_command([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
+                          str(core["wheel"])])
         self.run_command([
             str(python), "-m", "pip", "install", "--no-index", "--no-build-isolation",
             "--no-deps", "-e", str(Path(__file__).resolve().parents[1]),
