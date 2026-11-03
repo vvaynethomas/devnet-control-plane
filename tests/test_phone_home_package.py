@@ -95,10 +95,12 @@ class TestPhoneHomePackage(unittest.TestCase):
             )
             self.run_command([str(python), "-I", "-c", probe])
 
+    @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
+                         "Set DNCP_PRIVATE_INTEGRATION=1 for authenticated producer artifact integration")
     def test_wheel_and_sdist_installed_entrypoints_registry_and_api(self) -> None:
         core_dir = self.root / "material-core"
         core = build_material_core.build_release(core_dir)
-        built = release.build_release(self.root / "dist", Path(core["wheel"]))
+        built = release.build_release(self.root / "dist", Path(core["wheel"]), Path(core["utility_wheel"]))
         with zipfile.ZipFile(built["wheel"]) as archive:
             self.assertIn("control_plane/registry/interaction_frames.json", archive.namelist())
             self.assertNotIn("material_core/__init__.py", archive.namelist())
@@ -131,7 +133,8 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertNotEqual(missing.returncode, 0)
                 self.assertIn("Material capability is not installed", missing.stderr)
                 self.assertIn("devnet-control-plane[material]", missing.stderr)
-                self.run_command([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])])
+                self.run_command([str(python), "-m", "pip", "install", "--no-index", "--no-deps",
+                                  str(core["utility_wheel"]), str(core["wheel"])])
                 unverified = subprocess.run(
                     [str(python), "-I", "-c", "from control_plane.material_capability import require_material_core; require_material_core()"],
                     cwd=self.root, capture_output=True, text=True, timeout=30,
@@ -139,7 +142,7 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertNotEqual(unverified.returncode, 0)
                 self.assertIn("verified source provenance", unverified.stderr)
                 self.run_command([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
-                                  str(core["wheel"])])
+                                  str(core["wheel"]), "--utility-wheel", str(core["utility_wheel"])])
                 self.run_command([str(python), "-I", "-c",
                                   "from importlib.metadata import distribution; from pathlib import Path; "
                                   "from control_plane.material_capability import require_material_core,MaterialCapabilityError; "
@@ -154,7 +157,7 @@ class TestPhoneHomePackage(unittest.TestCase):
                 core_version = self.run_command([
                     str(python), "-c",
                     "from importlib.metadata import version; "
-                    "assert version('material-core') == '0.1.0'; "
+                    f"assert version('material-core') == {release.MATERIAL_CORE_VERSION!r}; "
                     "import control_plane.material_ingestion",
                 ])
                 for alias in ("devnet", "devnet-control-plane"):
@@ -163,7 +166,7 @@ class TestPhoneHomePackage(unittest.TestCase):
                     self.run_command([str(cli), "--help"])
                 probe = (
                     "from material_core import __version__, digest_material; "
-                    "assert __version__ == '0.1.0'; "
+                    f"assert __version__ == {release.MATERIAL_CORE_VERSION!r}; "
                     "assert digest_material(b'Goal: reuse',name='note.txt',format='text').material.revision; "
                     "from control_plane import REGISTRY_PATH; assert REGISTRY_PATH.is_file(); "
                     "from control_plane.ui import ControlPlaneWorkbench, serve_control_plane; "
@@ -200,7 +203,7 @@ class TestPhoneHomePackage(unittest.TestCase):
     def test_release_builder_rejects_missing_or_incompatible_core_wheel(self) -> None:
         with self.assertRaises(FileNotFoundError):
             release.verify_material_core_wheel(self.root / "missing.whl")
-        wrong = self.root / "material_core-0.1.0-py3-none-any.whl"
+        wrong = self.root / f"material_core-{release.MATERIAL_CORE_VERSION}-py3-none-any.whl"
         with zipfile.ZipFile(wrong, "w") as archive:
             archive.writestr(
                 "material_core-0.2.0.dist-info/METADATA",
@@ -209,9 +212,15 @@ class TestPhoneHomePackage(unittest.TestCase):
             for name in ("material_core/__init__.py", "material_core/contract.py",
                          "material_core/safety.py", "material_core/supplied.py"):
                 archive.writestr(name, b"")
-        with self.assertRaisesRegex(ValueError, "requires material-core==0.1.0"):
-            release.build_release(self.root / "dncp", wrong)
+        with self.assertRaisesRegex(ValueError, "independently pinned producer release"):
+            utility = self.root / (
+                f"utility_chest_credential_patterns-{release.UTILITY_VERSION}-py3-none-any.whl"
+            )
+            utility.write_bytes(b"not the pinned utility release")
+            release.build_release(self.root / "dncp", wrong, utility)
 
+    @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
+                         "Set DNCP_PRIVATE_INTEGRATION=1 for authenticated producer artifact integration")
     def test_editable_dncp_install_uses_local_exact_core_wheel(self) -> None:
         core_dir = self.root / "material-core"
         core = build_material_core.build_release(core_dir)
@@ -220,7 +229,7 @@ class TestPhoneHomePackage(unittest.TestCase):
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
         self.run_command([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
-                          str(core["wheel"])])
+                          str(core["wheel"]), "--utility-wheel", str(core["utility_wheel"])])
         self.run_command([
             str(python), "-m", "pip", "install", "--no-index", "--no-build-isolation",
             "--no-deps", "-e", str(Path(__file__).resolve().parents[1]),
@@ -228,7 +237,7 @@ class TestPhoneHomePackage(unittest.TestCase):
         self.run_command([
             str(python), "-c",
             "from importlib.metadata import version; "
-            "assert version('material-core') == '0.1.0'; "
+            f"assert version('material-core') == {release.MATERIAL_CORE_VERSION!r}; "
             "import control_plane.material_ingestion",
         ])
 

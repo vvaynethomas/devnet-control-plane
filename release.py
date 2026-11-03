@@ -23,11 +23,14 @@ PACKAGE_NAME = "devnet-control-plane"
 DISTRIBUTION_NAME = "devnet_control_plane"
 VERSION = "0.1.0"
 MATERIAL_CORE_NAME = "material-core"
-MATERIAL_CORE_VERSION = "0.1.0"
-MATERIAL_CORE_COMMIT = "108fe9f309005ac7593fd640fce54bc196262198"
+from control_plane.material_pins import (
+    CORE_VERSION as MATERIAL_CORE_VERSION, CORE_COMMIT as MATERIAL_CORE_COMMIT,
+    CORE_WHEEL_SHA256 as MATERIAL_CORE_WHEEL_SHA256, UTILITY_VERSION,
+    UTILITY_COMMIT, UTILITY_WHEEL_SHA256, UTILITY_REQUIREMENT,
+    HUB_VERSION, HUB_COMMIT, HUB_URL, HUB_WHEEL_SHA256,
+)
 MATERIAL_CORE_REQUIREMENT = f"material-core @ git+https://github.com/vvaynethomas/material-core@{MATERIAL_CORE_COMMIT}"
-HUB_COMMIT = "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2"
-HUB_REQUIREMENT = f"conversation-hub @ git+https://github.com/vvaynethomas/conversation-hub.git@{HUB_COMMIT}"
+HUB_REQUIREMENT = f"conversation-hub @ git+{HUB_URL}.git@{HUB_COMMIT}"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -71,37 +74,50 @@ def collect_source_files(pkg_dir: Path) -> list[tuple[str, bytes]]:
 def verify_material_core_wheel(path: Path) -> dict[str, object]:
     if not path.is_file():
         raise FileNotFoundError(f"required local {MATERIAL_CORE_NAME} wheel not found: {path}")
-    expected_filename = "material_core-0.1.0-py3-none-any.whl"
-    if path.name != expected_filename:
-        raise ValueError(f"expected pinned core wheel filename {expected_filename}")
-    with zipfile.ZipFile(path) as archive:
+    return verify_material_core_bytes(path.read_bytes(), path.name)
+
+
+def verify_material_core_bytes(data: bytes, filename: str) -> dict[str, object]:
+    """Validate one byte snapshot against the independently pinned release."""
+    return _verify_producer_bytes(data, filename, MATERIAL_CORE_NAME, MATERIAL_CORE_VERSION,
+                                  MATERIAL_CORE_COMMIT, MATERIAL_CORE_WHEEL_SHA256, "material_core")
+
+
+def verify_utility_bytes(data: bytes, filename: str) -> dict[str, object]:
+    return _verify_producer_bytes(data, filename, "utility-chest-credential-patterns", UTILITY_VERSION,
+                                  UTILITY_COMMIT, UTILITY_WHEEL_SHA256, "credential_patterns")
+
+
+def _verify_producer_bytes(data: bytes, filename: str, name: str, version: str,
+                           commit: str, digest: str, package: str) -> dict[str, object]:
+    expected_filename = f"{name.replace('-', '_')}-{version}-py3-none-any.whl"
+    if filename != expected_filename:
+        raise ValueError(f"expected pinned {name} wheel filename {expected_filename}")
+    if compute_sha256(data) != digest:
+        raise ValueError("core wheel digest does not match the independently pinned producer release")
+    with zipfile.ZipFile(io_bytes(data)) as archive:
         names = archive.namelist()
         metadata_paths = [name for name in names if name.endswith(".dist-info/METADATA")]
         if len(metadata_paths) != 1:
             raise ValueError("material-core wheel must contain exactly one METADATA file")
         metadata = Parser().parsestr(archive.read(metadata_paths[0]).decode("utf-8"))
-        if not all(name in names for name in (
-            "material_core/__init__.py", "material_core/contract.py",
-            "material_core/safety.py", "material_core/supplied.py"
-        )):
+        required = [f"{package}/__init__.py"]
+        if package == "material_core":
+            required += [f"{package}/{module}.py" for module in ("contract", "safety", "supplied")]
+            if UTILITY_REQUIREMENT not in (metadata.get_all("Requires-Dist") or []):
+                raise ValueError("core does not declare the pinned transitive utility dependency")
+        if not all(module in names for module in required):
             raise ValueError("material-core wheel is missing required package modules")
-    if metadata["Name"] != MATERIAL_CORE_NAME or metadata["Version"] != MATERIAL_CORE_VERSION:
+        source_hashes = {name: compute_sha256(archive.read(name)) for name in names
+                         if name.startswith(f"{package}/") and name.endswith(".py")}
+    if metadata["Name"] != name or metadata["Version"] != version:
         raise ValueError(
-            f"DNCP requires {MATERIAL_CORE_NAME}=={MATERIAL_CORE_VERSION}; "
+            f"DNCP requires {name}=={version}; "
             f"got {metadata['Name']}=={metadata['Version']}"
         )
-    data = path.read_bytes()
-    manifest_path = path.parent / "RELEASE_MANIFEST.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("source_commit") != MATERIAL_CORE_COMMIT:
-        raise ValueError("core artifact provenance does not match the immutable source pin")
-    artifacts = manifest.get("artifacts", [])
-    if not any(artifact.get("filename") == path.name
-               and artifact.get("sha256") == compute_sha256(data)
-               for artifact in artifacts):
-        raise ValueError("core artifact digest does not match its source manifest")
-    return {"filename": path.name, "version": metadata["Version"], "sha256": compute_sha256(data),
-            "size_bytes": len(data)}
+    return {"filename": filename, "version": metadata["Version"], "sha256": compute_sha256(data),
+            "size_bytes": len(data), "source_sha256": source_hashes,
+            "source_commit": commit}
 
 
 def build_wheel(dist_dir: Path, source_files: list[tuple[str, bytes]]) -> Path:
@@ -206,9 +222,15 @@ def io_bytes(data: bytes):
     return io.BytesIO(data)
 
 
-def build_release(output_dir: Path, material_core_wheel: Path | None = None) -> dict[str, object]:
+def build_release(output_dir: Path, material_core_wheel: Path | None = None,
+                  utility_wheel: Path | None = None) -> dict[str, object]:
     """Build public DNCP, optionally verifying a pinned core for offline consumers."""
     core_artifact = verify_material_core_wheel(material_core_wheel) if material_core_wheel is not None else None
+    utility_artifact = verify_utility_bytes(utility_wheel.read_bytes(), utility_wheel.name) if utility_wheel else None
+    if material_core_wheel is not None and utility_artifact is None:
+        raise ValueError("the material capability release requires both digest-pinned producer wheels")
+    if utility_wheel is not None and material_core_wheel is None:
+        raise ValueError("--utility-wheel requires --material-core-wheel")
     dist_dir = output_dir
     dist_dir.mkdir(parents=True, exist_ok=True)
 
@@ -258,6 +280,15 @@ def build_release(output_dir: Path, material_core_wheel: Path | None = None) -> 
         },
         "material_core_artifact": core_artifact,
         "material_core_source_commit": MATERIAL_CORE_COMMIT,
+        "utility_artifact": utility_artifact,
+        "producer_release_pins": {
+            "material-core": {"version": MATERIAL_CORE_VERSION, "commit": MATERIAL_CORE_COMMIT,
+                              "wheel_sha256": MATERIAL_CORE_WHEEL_SHA256},
+            "utility-chest-credential-patterns": {"version": UTILITY_VERSION, "commit": UTILITY_COMMIT,
+                                                   "wheel_sha256": UTILITY_WHEEL_SHA256},
+            "conversation-hub": {"version": HUB_VERSION, "commit": HUB_COMMIT,
+                                 "wheel_sha256": HUB_WHEEL_SHA256},
+        },
         "artifacts": artifacts,
         "source_inventory": {
             "file_count": len(sources),
@@ -286,7 +317,8 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--material-core-wheel", type=Path)
+    parser.add_argument("--utility-wheel", type=Path)
     parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "dist")
     args = parser.parse_args()
-    out = build_release(args.output_dir, args.material_core_wheel)
+    out = build_release(args.output_dir, args.material_core_wheel, args.utility_wheel)
     print(json.dumps(out, indent=2))

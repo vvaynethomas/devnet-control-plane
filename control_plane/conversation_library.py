@@ -16,12 +16,13 @@ from importlib.metadata import PackageNotFoundError, distribution
 from types import ModuleType
 from typing import Any, Callable, ContextManager, NoReturn
 from uuid import uuid4
+from .material_pins import HUB_COMMIT, HUB_VERSION, HUB_URL
 
 
 PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
-HUB_READER_REVISION = "381644edec4c948375bc6f24b695bbba7b699e7a"
-HUB_READER_VERSION = "0.1.2"
-HUB_READER_URL = "https://github.com/vvaynethomas/conversation-hub.git"
+HUB_READER_REVISION = HUB_COMMIT
+HUB_READER_VERSION = HUB_VERSION
+HUB_READER_URL = f"{HUB_URL}.git"
 APPLICATION_ID = 0x41434831
 SCHEMA_VERSION = 1
 READ_BUSY_TIMEOUT_SECONDS = 1.0
@@ -171,7 +172,7 @@ def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     ):
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub does not match the pinned v0.1.2 commit. "
+            f"Installed Conversation Hub does not match the pinned v{HUB_READER_VERSION} commit. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )

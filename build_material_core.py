@@ -1,62 +1,39 @@
-"""Explicitly fetch and build DNCP's immutable external core dependency.
-
-This command needs authenticated GitHub access and locally installed build
-tools. It never falls back to in-tree sources or a mutable branch/tag.
-"""
-
-from __future__ import annotations
+"""Explicit authenticated fetch of the pinned producer wheel; no product rebuild."""
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import subprocess
-import sys
-import tarfile
 import tempfile
 
-from release import MATERIAL_CORE_COMMIT
-
-SOURCE_URL = "https://github.com/vvaynethomas/material-core.git"
-
-
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+from release import (MATERIAL_CORE_COMMIT, MATERIAL_CORE_VERSION, verify_material_core_bytes,
+                     verify_utility_bytes, UTILITY_VERSION)
 
 
 def build_release(output_dir: Path) -> dict[str, object]:
+    """Retained command compatibility; fetch the published artifact, never clone/build."""
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="external-material-core-") as temporary:
-        source = Path(temporary) / "source"
-        subprocess.run(["git", "clone", "--quiet", SOURCE_URL, str(source)], check=True)
-        subprocess.run(["git", "-C", str(source), "checkout", "--quiet", MATERIAL_CORE_COMMIT],
-                       check=True)
-        actual = subprocess.run(["git", "-C", str(source), "rev-parse", "HEAD"],
-                                check=True, capture_output=True, text=True).stdout.strip()
-        if actual != MATERIAL_CORE_COMMIT:
-            raise RuntimeError("external core checkout did not match the immutable pin")
-        files = subprocess.run(["git", "-C", str(source), "ls-files"],
-                               check=True, capture_output=True, text=True).stdout.splitlines()
-        inventory = {name: sha256((source / name).read_bytes()) for name in files}
-        sdist = output_dir / "material_core-0.1.0.tar.gz"
-        with tarfile.open(sdist, "w:gz") as archive:
-            for name in files:
-                archive.add(source / name, arcname=f"material_core-0.1.0/{name}", recursive=False)
-        subprocess.run([sys.executable, "-m", "pip", "wheel", "--no-index", "--no-deps",
-                        "--no-build-isolation", "--wheel-dir", str(output_dir), str(source)],
-                       check=True, timeout=120)
-    wheel = output_dir / "material_core-0.1.0-py3-none-any.whl"
-    artifacts = [{"filename": path.name, "size_bytes": path.stat().st_size,
-                  "sha256": sha256(path.read_bytes())} for path in (wheel, sdist)]
+    filenames = (f"material_core-{MATERIAL_CORE_VERSION}-py3-none-any.whl",
+                 f"utility_chest_credential_patterns-{UTILITY_VERSION}-py3-none-any.whl")
+    artifacts = []
+    with tempfile.TemporaryDirectory(prefix="published-material-core-") as temporary:
+        for filename, repo, version, verify in (
+            (filenames[0], "vvaynethomas/material-core", MATERIAL_CORE_VERSION, verify_material_core_bytes),
+            (filenames[1], "vvaynethomas/utility-chest", UTILITY_VERSION, verify_utility_bytes),
+        ):
+            subprocess.run(["gh", "release", "download", f"v{version}", "--repo", repo,
+                            "--pattern", filename, "--dir", temporary], check=True, timeout=120)
+            data = (Path(temporary) / filename).read_bytes()
+            artifacts.append(verify(data, filename))
+            (output_dir / filename).write_bytes(data)
     manifest = output_dir / "RELEASE_MANIFEST.json"
-    manifest.write_text(json.dumps({"name": "material-core", "version": "0.1.0",
-                                   "source_url": SOURCE_URL,
+    manifest.write_text(json.dumps({"name": "material-core", "version": MATERIAL_CORE_VERSION,
                                    "source_commit": MATERIAL_CORE_COMMIT,
-                                   "source_sha256": inventory,
+                                   "source_sha256": artifacts[0]["source_sha256"],
                                    "artifacts": artifacts}, indent=2), encoding="utf-8")
-    return {"wheel": str(wheel), "sdist": str(sdist), "manifest": str(manifest),
-            "artifacts": artifacts}
+    return {"wheel": str(output_dir / filenames[0]), "utility_wheel": str(output_dir / filenames[1]),
+            "manifest": str(manifest), "artifacts": artifacts}
 
 
 if __name__ == "__main__":

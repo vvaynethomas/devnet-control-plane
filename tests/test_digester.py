@@ -2,6 +2,8 @@
 
 from contextlib import closing, redirect_stdout, redirect_stderr
 import io
+import os
+from importlib.metadata import distribution, PackageNotFoundError
 import json
 from pathlib import Path
 import sqlite3
@@ -11,6 +13,12 @@ import tempfile
 import unittest
 import venv
 from unittest.mock import patch
+
+try:
+    distribution("material-core")
+    distribution("utility-chest-credential-patterns")
+except PackageNotFoundError:
+    raise unittest.SkipTest("Install DNCP's optional material capability for repository digester tests")
 
 from control_plane.cli import main
 from control_plane.digester import DISPOSITIONS, REVIEW_ACTIONS, Digestion, MaterialReference
@@ -233,17 +241,19 @@ class TestRepositoryDigester(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["material"]["revision"], self.revision)
         self.assertFalse((self.data / "phone_home.sqlite").exists())
 
+    @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
+                         "Set DNCP_PRIVATE_INTEGRATION=1 for authenticated producer artifact integration")
     def test_installed_wheel_cli_without_source_checkout_or_dependencies(self) -> None:
         import build_material_core
         import release
         core = build_material_core.build_release(self.root / "material-core")
-        wheel = release.build_release(self.root / "dist", Path(core["wheel"]))["wheel"]
+        wheel = release.build_release(self.root / "dist", Path(core["wheel"]), Path(core["utility_wheel"]))["wheel"]
         environment = self.root / "installed"
         venv.EnvBuilder(with_pip=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
         subprocess.run([str(python), str(Path(__file__).resolve().parents[1] / "install_material_core.py"),
-                        str(core["wheel"])],
+                        str(core["wheel"]), "--utility-wheel", str(core["utility_wheel"])],
                        cwd=self.root, check=True, capture_output=True, timeout=60)
         subprocess.run([str(python), "-m", "pip", "install", "--no-index", "--no-deps", wheel],
                        cwd=self.root, check=True, capture_output=True, timeout=60)

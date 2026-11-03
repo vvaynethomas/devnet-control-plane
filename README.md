@@ -58,8 +58,10 @@ for all clients. DNCP never writes knowledge records to that incubator.
 The public base package requires Python >=3.10 and no runtime dependencies or
 private credentials. Editable/source builds use locally available
 `setuptools>=61.0` and `wheel`. Material ingestion and repository digestion
-require the optional `material` extra, which pins private `material-core` 0.1.0
-to commit `108fe9f309005ac7593fd640fce54bc196262198`.
+require the optional `material` extra, which pins private `material-core`
+v0.1.1rc2 to commit `31d0661fae0a89f80290d8e645a6872431cd6dd6` and its
+Utility Chest credential-patterns dependency to commit
+`4e2a06146944b438f10525ef45c44cc101b417b5`.
 See [the package handover](docs/material-core-package.md) for authenticated
 full-feature installation and offline artifact workflows.
 ```bash
@@ -303,8 +305,8 @@ executed or fetched, and no LLM or automatic promotion is involved.
 
 The deterministic evidence contract and supplied-byte adapters live in the
 external [material-core](https://github.com/vvaynethomas/material-core) package,
-released as v0.1.0 and pinned to commit
-`108fe9f309005ac7593fd640fce54bc196262198`. DNCP's `control_plane\material_ingestion.py`
+released as v0.1.1rc2 and pinned to commit
+`31d0661fae0a89f80290d8e645a6872431cd6dd6`. DNCP's `control_plane\material_ingestion.py`
 validates the phone-home payload and delegates to that core; phone-home still
 owns routing, receipt metadata and inbox persistence. This is a consumer boundary
 with no bundled core source. Independent licensing and ownership remain undecided.
@@ -477,14 +479,15 @@ installation, explicitly fetch/build the pinned core and validate its identity;
 DNCP never embeds it:
 ```bash
 python build_material_core.py --output-dir dist\material-core
-python release.py --material-core-wheel dist\material-core\material_core-0.1.0-py3-none-any.whl --output-dir dist\devnet
-python install_material_core.py dist\material-core\material_core-0.1.0-py3-none-any.whl
+python release.py --material-core-wheel dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
+python install_material_core.py dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
 pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
 pip check
 ```
-The core and DNCP each emit their own wheel/source archive and
-`RELEASE_MANIFEST.json` with artifact/source SHA-256 identities. The DNCP
-manifest pins the exact core wheel by filename and digest.
+DNCP emits its own wheel/source archive and `RELEASE_MANIFEST.json`.
+The Material Core and Utility Chest wheels are downloaded from their
+independently digest-pinned producer releases; DNCP does not rebuild those
+products. The manifest records both exact wheel filenames and digests.
 
 **Remaining release gates:** CLI and registry installation have portable smoke coverage for both the standard-library wheel and the setuptools wheel built from its sdist. Archive timestamps still prevent assuming byte-for-byte reproducibility, and manifest Git provenance is resolved outside this repository. No tags or GitHub Releases were listed during the 2026-11-01 audit; publication elsewhere is unknown. These checks do not establish publication or operator acceptance.
 

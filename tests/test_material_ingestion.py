@@ -14,6 +14,13 @@ from unittest.mock import patch
 import urllib.request
 import warnings
 import zipfile
+from importlib.metadata import distribution, PackageNotFoundError
+
+try:
+    distribution("material-core")
+    distribution("utility-chest-credential-patterns")
+except PackageNotFoundError:
+    raise unittest.SkipTest("Install DNCP's optional material capability for format integration tests")
 
 from control_plane.cli import main
 from control_plane.digester import MaterialReference

@@ -32,7 +32,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-material = ["material-core @ git+https://github.com/vvaynethomas/material-core@108fe9f309005ac7593fd640fce54bc196262198"]
+material = ["material-core @ git+https://github.com/vvaynethomas/material-core@31d0661fae0a89f80290d8e645a6872431cd6dd6"]
 mcp = [
     "mcp>=1.30,<2",
 ]

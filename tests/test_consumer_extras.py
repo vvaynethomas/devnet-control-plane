@@ -6,10 +6,14 @@ import sys
 import tempfile
 import unittest
 import venv
+import os
 
 import release
+from control_plane.material_pins import HUB_VERSION, HUB_COMMIT
 
 
+@unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
+                     "Set DNCP_PRIVATE_INTEGRATION=1 for private Git dependency installation matrix")
 class TestConsumerExtras(unittest.TestCase):
     def test_each_extra_and_both_with_standard_and_custom_wheels(self):
         tests = Path(__file__).resolve().parent
@@ -58,7 +62,8 @@ class TestConsumerExtras(unittest.TestCase):
                         if hub:
                             script += (
                                 "from control_plane.conversation_library import _configured_snapshot_reader; "
-                                "reader,info=_configured_snapshot_reader(); assert info['version']=='0.1.1'; "
+                                f"reader,info=_configured_snapshot_reader(); assert info['version']=={HUB_VERSION!r}; "
+                                f"assert info['revision']=={HUB_COMMIT!r}; "
                                 "suite=unittest.defaultTestLoader.loadTestsFromName("
                                 "'test_conversation_library.ConversationLibraryTests.test_pinned_hub_reader_reads_synthetic_library_when_extra_is_installed'); "
                                 "assert unittest.TextTestRunner().run(suite).wasSuccessful(); "
