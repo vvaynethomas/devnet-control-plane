@@ -1,10 +1,12 @@
 """Synthetic PRJ-0006 persistence-contract integration; no personal source discovery."""
 
-from contextlib import closing, redirect_stderr, redirect_stdout
+from contextlib import closing, contextmanager, redirect_stderr, redirect_stdout
 from copy import deepcopy
 import hashlib
+import importlib.util
 import io
 import json
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 import sqlite3
 import tempfile
@@ -14,7 +16,7 @@ from unittest.mock import patch
 from control_plane.cli import main
 from control_plane.conversation_library import (
     APPLICATION_ID, ConversationLibraryError, MAX_LIBRARY_BYTES, MAX_OBSERVATIONS,
-    MAX_RECORD_BYTES, MAX_TOTAL_BYTES, read_conversation_library,
+    MAX_RECORD_BYTES, MAX_TOTAL_BYTES, _configured_snapshot_reader, read_conversation_library,
 )
 
 
@@ -52,8 +54,42 @@ def fixture(platform: str = "chatgpt", revision: str = "b" * 64) -> dict:
     }
 
 
+def synthetic_read_snapshot(path: Path):
+    @contextmanager
+    def snapshot():
+        connection = sqlite3.connect(
+            path.as_uri() + "?mode=ro", uri=True, timeout=1.0, isolation_level=None,
+        )
+        try:
+            connection.execute("BEGIN")
+            if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+                raise ValueError("Not a supported library")
+            if connection.execute("PRAGMA user_version").fetchone()[0] != 1:
+                raise ValueError("Not a supported library")
+            yield connection
+        finally:
+            if connection.in_transaction:
+                connection.rollback()
+            connection.close()
+
+    return snapshot()
+
+
 class ConversationLibraryTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.reader_patcher = patch(
+            "control_plane.conversation_library._configured_snapshot_reader",
+            return_value=(
+                synthetic_read_snapshot,
+                {
+                    "implementation": "conversation-hub",
+                    "version": "0.1.1",
+                    "revision": "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2",
+                },
+            ),
+        )
+        self.reader_patcher.start()
+        self.addCleanup(self.reader_patcher.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -114,6 +150,7 @@ class ConversationLibraryTests(unittest.TestCase):
         self.assertIn("never followed", result["diagnostics"][1])
         self.assertEqual(result["contract"]["schema_version"], 1)
         self.assertEqual(result["contract"]["producer_revision"], "11c362c621727a331a1ecf9ffee40220d8a6d373")
+        self.assertEqual(result["library_reader"]["revision"], "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2")
         self.assertEqual(before, self.library.read_bytes())
         self.assertEqual(list(self.library.parent.iterdir()), [self.library])
 
@@ -307,6 +344,75 @@ class ConversationLibraryTests(unittest.TestCase):
             snapshot = read_conversation_library(self.library)
         self.assertEqual(len(snapshot["observations"]), 1)
         self.assertEqual(len(read_conversation_library(self.library)["observations"]), 2)
+
+    def test_published_read_snapshot_api_shape_is_supported_with_synthetic_provider(self) -> None:
+        calls: list[Path] = []
+
+        def producer_read_snapshot(path: Path):
+            calls.append(path)
+            return synthetic_read_snapshot(path)
+
+        self.add(fixture())
+        before = self.library.read_bytes()
+        provider_info = {
+            "implementation": "conversation-hub",
+            "version": "0.1.1",
+            "revision": "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2",
+        }
+        with patch(
+            "control_plane.conversation_library._configured_snapshot_reader",
+            return_value=(producer_read_snapshot, provider_info),
+        ):
+            result = read_conversation_library(self.library)
+        self.assertEqual(calls, [self.library.resolve()])
+        self.assertEqual(result["observations"], [fixture()])
+        self.assertEqual(result["library_reader"], provider_info)
+        self.assertEqual(before, self.library.read_bytes())
+
+    def test_missing_optional_hub_has_actionable_error_and_no_fallback(self) -> None:
+        with patch(
+            "control_plane.conversation_library.distribution",
+            side_effect=PackageNotFoundError,
+        ):
+            with self.assertRaises(ConversationLibraryError) as caught:
+                _configured_snapshot_reader()
+        self.assertEqual(caught.exception.code, "hub_unavailable")
+        self.assertIn("devnet-control-plane[conversation-hub]", str(caught.exception))
+        self.assertIn("Python 3.12+", str(caught.exception))
+
+    def test_wrong_installed_hub_commit_is_rejected(self) -> None:
+        class WrongHubDistribution:
+            version = "0.1.1"
+
+            @staticmethod
+            def read_text(name: str) -> str:
+                return json.dumps({"vcs_info": {"commit_id": "0" * 40}})
+
+        with patch(
+            "control_plane.conversation_library.distribution",
+            return_value=WrongHubDistribution(),
+        ):
+            with self.assertRaises(ConversationLibraryError) as caught:
+                _configured_snapshot_reader()
+        self.assertEqual(caught.exception.code, "hub_incompatible")
+        self.assertIn("pinned v0.1.1 commit", str(caught.exception))
+
+    def test_pinned_hub_reader_reads_synthetic_library_when_extra_is_installed(self) -> None:
+        if importlib.util.find_spec("conversation_hub") is None:
+            self.skipTest("Install the optional conversation-hub extra for package integration coverage")
+        reader, reader_info = _configured_snapshot_reader()
+        self.add(fixture())
+        before = self.library.read_bytes()
+        with patch(
+            "control_plane.conversation_library._configured_snapshot_reader",
+            return_value=(reader, reader_info),
+        ):
+            result = read_conversation_library(self.library)
+        self.assertEqual(reader_info["implementation"], "conversation-hub")
+        self.assertEqual(reader_info["version"], "0.1.1")
+        self.assertEqual(reader_info["revision"], "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2")
+        self.assertEqual(result["observations"], [fixture()])
+        self.assertEqual(before, self.library.read_bytes())
 
     def test_exclusive_writer_returns_redacted_busy_error(self) -> None:
         path = self.library.with_name("private-path-secret.sqlite")
