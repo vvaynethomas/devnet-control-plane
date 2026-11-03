@@ -57,8 +57,10 @@ def _session_from_conversation(
     unassigned_messages: list[dict[str, str]] = []
     unclassified_tokens = 0
     messages = view.messages
+    estimated_messages = messages
     if source_kind == "copilot-cli" and max_messages is not None:
-        messages = tuple(message for message in messages if len(message.content.strip()) > 15)[:max_messages]
+        estimated_messages = tuple(message for message in messages if len(message.content.strip()) > 15)
+        messages = estimated_messages[:max_messages]
     selected_ids = {message.id for message in messages}
 
     def selected(items: Any) -> list[Any]:
@@ -106,7 +108,7 @@ def _session_from_conversation(
                     }
                     for message in selected(turn.other_messages)
                 ],
-                "tool_calls": list(turn.tool_calls),
+                "tool_calls": [] if source_kind == "copilot-cli" else list(turn.tool_calls),
                 "messages": [
                     {"role": message.role, "source_role": message.source_role, "content": content(message)}
                     for message in selected(turn.messages)
@@ -120,7 +122,7 @@ def _session_from_conversation(
             }
             for message in selected(view.unassigned_messages)
         ]
-        title = metadata.title or next(
+        title = (metadata.title if source_kind != "copilot-cli" else None) or next(
             (turn["user_prompt"].replace("\n", " ")[:90] for turn in turns if turn["user_prompt"]),
             next(
                 (content(message).replace("\n", " ")[:90]
@@ -150,6 +152,13 @@ def _session_from_conversation(
             estimate_tokens(message.content)
             for message in messages if message.role not in {"user", "assistant"}
         )
+        if source_kind == "copilot-cli":
+            input_tokens = sum(estimate_tokens(content(message)) for message in estimated_messages
+                               if message.role == "user")
+            output_tokens = sum(estimate_tokens(content(message)) for message in estimated_messages
+                                if message.role == "assistant")
+            unclassified_tokens = sum(estimate_tokens(content(message)) for message in estimated_messages
+                                      if message.role not in {"user", "assistant"})
         turn_count = len(turns)
         source_uri = source_record.get("source_path") or conversation.provenance.export_uri
         if not isinstance(source_uri, str):

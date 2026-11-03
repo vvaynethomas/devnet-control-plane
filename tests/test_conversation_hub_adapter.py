@@ -359,6 +359,53 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertTrue(any("800 characters per message" in note for note in captured.output))
         self.assertTrue(any("qualifying messages" in note for note in hub._source_diagnostics))
 
+    def test_cli_title_and_search_exclude_later_prompt_but_totals_cover_window(self) -> None:
+        try:
+            _configured_hub_api()
+        except ConversationLibraryError as exc:
+            if exc.code == "hub_unavailable":
+                self.skipTest("Install the optional Conversation Hub extra for bounded title parity")
+            raise
+        events = [
+            {"role": "tool", "message": f"permitted synthetic tool message {index}"}
+            for index in range(10)
+        ]
+        events.append({"role": "user", "message": "excludedneedle eleventh synthetic user prompt"})
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        hub = UnifiedConversationHub(data_dir=self.root / "bounded-title")
+        scan_cli = hub.scan_copilot_cli
+        with patch.object(hub, "scan_antigravity", return_value=[]), \
+             patch.object(hub, "scan_vscode_copilot", return_value=[]), \
+             patch.object(hub, "get_imported_chats", return_value=[]), \
+             patch.object(hub, "scan_copilot_cli", side_effect=lambda: scan_cli(self.cli_root)):
+            self.assertEqual(hub.get_all_conversations(query="excludedneedle")["sessions"], [])
+            result = hub.get_all_conversations()
+        session = result["sessions"][0]
+        self.assertEqual(session["title"], events[0]["message"])
+        self.assertNotIn("excludedneedle", json.dumps(session))
+        expected_input = len(events[-1]["message"]) // 4
+        expected_other = sum(len(event["message"]) // 4 for event in events[:10])
+        self.assertEqual(session["est_input_tokens"], expected_input)
+        self.assertEqual(session["est_unclassified_tokens"], expected_other)
+        self.assertEqual(session["est_total_tokens"], expected_input + expected_other)
+        self.assertEqual(result["summary"]["est_total_tokens"], expected_input + expected_other)
+        events = [
+            {"role": "user", "message": "permitted synthetic user prompt"},
+            *[{"role": "tool", "message": f"permitted synthetic tool message {index}"} for index in range(9)],
+            {"role": "assistant", "message": "excluded synthetic assistant",
+             "type": "PLANNER_RESPONSE",
+             "tool_calls": [{"name": "excludedtoolneedle", "toolSummary": "excludedsummaryneedle"}]},
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        session = scan_cli(self.cli_root)[0]
+        self.assertEqual(session["turns"][0]["tool_calls"], [])
+        self.assertNotIn("excludedtoolneedle", json.dumps(session))
+        self.assertNotIn("excludedsummaryneedle", json.dumps(session))
+
     def _write_cli_physical_window_fixture(self) -> None:
         lines = ["\n", json.dumps({"event": "unsupported"}) + "\n"] * 49
         lines.append(json.dumps({"role": "user", "message": "line099 visible synthetic prompt"}) + "\n")
