@@ -40,7 +40,7 @@ llm = [
     "openai>=1.0.0",
 ]
 conversation-hub = [
-    "conversation-hub @ git+https://github.com/vvaynethomas/conversation-hub.git@2e00f9861ea60b083aaf7d0be779bcef1e23d7c2 ; python_version >= '3.12'",
+    "conversation-hub @ git+https://github.com/vvaynethomas/conversation-hub.git@186fcae50f030ff72909326db1e3b5b79ff7869c ; python_version >= '3.12'",
 ]
 
 [project.scripts]

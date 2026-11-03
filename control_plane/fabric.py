@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -13,8 +14,11 @@ from typing import Any
 
 from . import DEFAULT_DATA_DIR, FACTORY_ROOT
 from .safety import SECRET_RE
+from .conversation_library import ConversationLibraryError, _configured_hub_api
+from .conversation_hub_adapter import read_local_sessions
 
 ID_RE = re.compile(r"\b(SRC|FND|PAT|DEC|PRM|WF|RUN|SKL|PRJ|ART|BL)-\d{4}\b")
+logger = logging.getLogger(__name__)
 
 
 def redact_secrets(text: str) -> str:
@@ -124,6 +128,21 @@ def _harvest_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
     records: list[dict[str, Any]] = []
     if not brain_root.is_dir():
         return records
+    try:
+        _configured_hub_api()
+    except ConversationLibraryError as exc:
+        if exc.code != "hub_unavailable":
+            raise
+        logger.warning(
+            "Optional Conversation Hub is not installed; Fabric uses its legacy Antigravity reader. "
+            "Install devnet-control-plane[conversation-hub] to use the preview adapter."
+        )
+    else:
+        logger.warning(
+            "Fabric retains its legacy Antigravity reader because the preview Hub caps supported "
+            "transcripts rather than DNCP's historical directory-first selection."
+        )
+
     session_dirs = sorted(
         [d for d in brain_root.iterdir() if d.is_dir()],
         key=lambda d: d.stat().st_mtime,
@@ -188,6 +207,65 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     if not copilot_root.is_dir():
         return records
+    try:
+        sessions, diagnostics, _ = read_local_sessions(
+            "copilot-cli", copilot_root,
+            archive_key="dncp-local-copilot-cli", max_sessions=max_sessions,
+        )
+    except ConversationLibraryError as exc:
+        if exc.code != "hub_unavailable":
+            raise
+        else:
+            logger.warning(
+                "Optional Conversation Hub is not installed; Fabric uses its legacy Copilot CLI reader. "
+                "Install devnet-control-plane[conversation-hub] to use the preview adapter."
+            )
+        sessions = None
+        diagnostics = []
+    except (ValueError, OSError) as exc:
+        logger.warning(
+            "Conversation Hub could not read the selected Copilot CLI source (%s).",
+            type(exc).__name__,
+        )
+        return records
+    if sessions is not None:
+        for item in diagnostics:
+            logger.warning("Copilot CLI source adapter: %s", item)
+        for session in sessions:
+            snippets: list[str] = []
+            for turn in session["turns"]:
+                snippets.extend(
+                    [turn["user_prompt"]]
+                    + turn["assistant_responses"]
+                    + [
+                        message["content"]
+                        for message in turn.get("other_messages", [])
+                    ]
+                )
+            snippets.extend(
+                message["content"] for message in session.get("unassigned_messages", [])
+            )
+            snippets = [text for text in snippets if isinstance(text, str) and len(text.strip()) > 15]
+            if not snippets:
+                continue
+            combined = "\n\n".join(snippets[:12])
+            mentioned = sorted(set(match.group(0) for match in ID_RE.finditer(combined)))
+            records.append({
+                "id": f"CHAT-COP-{session['full_session_id'][:8]}",
+                "title": f"Copilot Session: {snippets[0][:90].replace(chr(10), ' ')}",
+                "kind": "conversation",
+                "harness": "copilot-cli",
+                "status": f"{len(snippets)} events",
+                "created_date": session["created_date"],
+                "path": session["source_path"],
+                "abs_path": session["source_path"],
+                "upstream_refs": mentioned[:6],
+                "downstream_refs": [],
+                "mentioned_ids": mentioned,
+                "body": combined,
+            })
+        return records
+
     event_files = sorted(
         copilot_root.glob("*/events.jsonl"),
         key=lambda p: p.stat().st_mtime,

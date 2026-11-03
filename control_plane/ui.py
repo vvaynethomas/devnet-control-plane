@@ -1190,6 +1190,25 @@ class ControlPlaneWorkbench:
             )
             summary = data["summary"]
             sessions = data["sessions"]
+            adapter = data.get("source_adapter", {})
+            adapter_label = (
+                f"{adapter.get('implementation', 'unknown')} "
+                f"{adapter.get('version') or ''} "
+                f"{adapter.get('revision') or ''}"
+            ).strip()
+            adapter_note = (
+                "Development pin; release verification required."
+                if adapter.get("implementation") == "conversation-hub"
+                else "Legacy compatibility path; Conversation Hub is unavailable."
+            )
+            adapter_diagnostics = adapter.get("diagnostics", [])
+            source_adapter_html = f"""
+            <div class="panel" style="margin:0 0 12px 0; padding:10px 14px; border-left:3px solid #d29922;">
+              <strong>Conversation source adapter:</strong> {escape(adapter_label)}
+              <div>{escape(adapter_note)}</div>
+              {''.join(f'<div style="margin-top:5px;">{escape(str(item))}</div>' for item in adapter_diagnostics)}
+            </div>
+            """
 
             # If no session selected, select the first one
             selected_session = None
@@ -1339,6 +1358,18 @@ class ControlPlaneWorkbench:
                     t_idx = t["turn_index"]
                     u_prompt = t["user_prompt"]
                     a_resp = "\n\n".join(t["assistant_responses"])
+                    other_messages_html = "".join(
+                        f"""
+                        <div style="margin-top:8px; padding:8px 10px; background:var(--surface-2); border-radius:6px;">
+                          <div><strong>Other source message</strong>
+                            <span class="badge badge-neutral">{escape(message.get('role', 'unknown'))}</span>
+                            <span class="muted">source role: {escape(message.get('source_role', 'unknown'))}</span>
+                          </div>
+                          <div style="white-space:pre-wrap;">{escape(message.get('content', ''))}</div>
+                        </div>
+                        """
+                        for message in t.get("other_messages", [])
+                    )
                     code_blocks = extract_code_blocks(a_resp)
                     code_btn = ""
                     if code_blocks:
@@ -1383,8 +1414,23 @@ class ControlPlaneWorkbench:
                         </div>
                         <div style="font-size:0.86rem; padding:8px 10px; background:var(--surface-2); border-radius:6px; white-space:pre-wrap; max-height:450px; overflow-y:auto;">{escape(a_resp)}</div>
                       </div>
+                      {other_messages_html}
                     </div>
                     """)
+
+                unassigned_rendered = [
+                    f"""
+                    <div class="card" style="margin-bottom:14px; background:var(--surface);">
+                      <div style="margin-bottom:6px;">
+                        <strong>Unassigned source message</strong>
+                        <span class="badge badge-neutral">{escape(message.get('role', 'unknown'))}</span>
+                        <span class="muted">source role: {escape(message.get('source_role', 'unknown'))}</span>
+                      </div>
+                      <div style="white-space:pre-wrap;">{escape(message.get('content', ''))}</div>
+                    </div>
+                    """
+                    for message in selected_session.get("unassigned_messages", [])
+                ]
 
                 dialogue_html = f"""
                 <div style="flex:1; min-width:0;">
@@ -1407,6 +1453,7 @@ class ControlPlaneWorkbench:
                     </div>
                   </div>
                   {''.join(turns_rendered)}
+                  {''.join(unassigned_rendered)}
                 </div>
                 """
             else:
@@ -1435,6 +1482,7 @@ class ControlPlaneWorkbench:
 
             return f"""
             {stats_html}
+            {source_adapter_html}
             {onboard_drawer}
             {filter_bar}
             <div style="display:flex; gap:16px; align-items:flex-start;">

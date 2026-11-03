@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import importlib.machinery
@@ -14,12 +14,12 @@ import sqlite3
 import sys
 from importlib.metadata import PackageNotFoundError, distribution
 from types import ModuleType
-from typing import Any, ContextManager, NoReturn
+from typing import Any, Callable, ContextManager, NoReturn
 from uuid import uuid4
 
 
 PRODUCER_REVISION = "11c362c621727a331a1ecf9ffee40220d8a6d373"
-HUB_READER_REVISION = "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2"
+HUB_READER_REVISION = "186fcae50f030ff72909326db1e3b5b79ff7869c"
 HUB_READER_VERSION = "0.1.1"
 HUB_READER_URL = "https://github.com/vvaynethomas/conversation-hub.git"
 APPLICATION_ID = 0x41434831
@@ -31,6 +31,19 @@ MAX_RECORD_BYTES = 256 * 1024
 MAX_TOTAL_BYTES = 4 * 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SnapshotReader = Callable[[Path], ContextManager[sqlite3.Connection]]
+
+
+@dataclass(frozen=True)
+class ConversationHubAPI:
+    read_snapshot: Callable[..., Any]
+    read_antigravity_sessions: Callable[..., Any]
+    read_vscode_copilot_sessions: Callable[..., Any]
+    read_copilot_cli_sessions: Callable[..., Any]
+    read_legacy_imported_chats: Callable[..., Any]
+    read_conversations: Callable[..., Any]
+    conversation_view: Callable[..., Any]
+    revision: str = HUB_READER_REVISION
+    version: str = HUB_READER_VERSION
 
 
 class ConversationLibraryError(ValueError):
@@ -133,7 +146,7 @@ def _validate_library_file(path: Path) -> None:
         raise ConversationLibraryError("limit_exceeded", "Library exceeds the 32 MiB consumer limit.", 413)
 
 
-def _configured_snapshot_reader() -> tuple[SnapshotReader, dict[str, str | None]]:
+def _configured_hub_api() -> tuple[ConversationHubAPI, dict[str, str | None]]:
     try:
         installed = distribution("conversation-hub")
     except PackageNotFoundError:
@@ -162,58 +175,72 @@ def _configured_snapshot_reader() -> tuple[SnapshotReader, dict[str, str | None]
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
+    module_names = ("model", "copilot_export", "library", "views", "sources")
     owned_files = {str(item).replace("\\", "/") for item in (installed.files or ())}
-    if not {"conversation_hub/library.py", "conversation_hub/model.py"} <= owned_files:
+    if not {f"conversation_hub/{name}.py" for name in module_names} <= owned_files:
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub is missing distribution-owned reader files. "
+            "Installed Conversation Hub is missing distribution-owned adapter files. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
     distribution_root = Path(installed.locate_file("")).resolve()
-    library_path = Path(installed.locate_file("conversation_hub/library.py")).resolve()
-    model_path = Path(installed.locate_file("conversation_hub/model.py")).resolve()
+    package_dir = Path(installed.locate_file("conversation_hub")).resolve()
     try:
-        library_path.relative_to(distribution_root)
-        model_path.relative_to(distribution_root)
+        package_dir.relative_to(distribution_root)
     except ValueError:
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub reader files are outside the checked distribution. "
+            "Installed Conversation Hub package directory is outside the checked distribution. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         ) from None
-    if not library_path.is_file() or not model_path.is_file():
+    if not package_dir.is_dir():
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub reader files are unavailable. "
+            "Installed Conversation Hub package directory is unavailable. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
-
     package_name = f"_dncp_pinned_conversation_hub_{uuid4().hex}"
     package = ModuleType(package_name)
     package.__package__ = package_name
-    package.__path__ = [str(library_path.parent)]
+    package.__path__ = [str(package_dir)]
     package.__spec__ = importlib.machinery.ModuleSpec(package_name, loader=None, is_package=True)
     sys.modules[package_name] = package
-
-    def load_distribution_module(name: str, file_path: Path) -> ModuleType:
-        spec = importlib.util.spec_from_file_location(name, file_path)
-        if spec is None or spec.loader is None:
-            raise ImportError("Cannot load checked Conversation Hub module")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-        return module
-
+    loaded: dict[str, ModuleType] = {}
     try:
-        load_distribution_module(f"{package_name}.model", model_path)
-        library_module = load_distribution_module(f"{package_name}.library", library_path)
+        for module_name in module_names:
+            relative = f"conversation_hub/{module_name}.py"
+            module_path = Path(installed.locate_file(relative)).resolve()
+            try:
+                module_path.relative_to(distribution_root)
+            except ValueError:
+                raise ConversationLibraryError(
+                    "hub_incompatible",
+                    "Installed Conversation Hub files are outside the checked distribution. "
+                    "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+                    503,
+                ) from None
+            if not module_path.is_file():
+                raise ConversationLibraryError(
+                    "hub_incompatible",
+                    "Installed Conversation Hub adapter files are unavailable. "
+                    "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
+                    503,
+                )
+            module_key = f"{package_name}.{module_name}"
+            spec = importlib.util.spec_from_file_location(module_key, module_path)
+            if spec is None or spec.loader is None:
+                raise ImportError("Cannot load checked Conversation Hub module")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_key] = module
+            spec.loader.exec_module(module)
+            loaded[module_name] = module
     except (ImportError, OSError, SyntaxError):
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub reader files could not be loaded. "
+            "Installed Conversation Hub adapter files could not be loaded. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         ) from None
@@ -221,19 +248,41 @@ def _configured_snapshot_reader() -> tuple[SnapshotReader, dict[str, str | None]
         for name in tuple(sys.modules):
             if name == package_name or name.startswith(package_name + "."):
                 del sys.modules[name]
-    read_snapshot = getattr(library_module, "read_snapshot", None)
-    if not callable(read_snapshot):
+    required = (
+        (loaded.get("library"), "read_snapshot"),
+        (loaded.get("sources"), "read_antigravity_sessions"),
+        (loaded.get("sources"), "read_vscode_copilot_sessions"),
+        (loaded.get("sources"), "read_copilot_cli_sessions"),
+        (loaded.get("sources"), "read_legacy_imported_chats"),
+        (loaded.get("library"), "read_conversations"),
+        (loaded.get("views"), "conversation_view"),
+    )
+    if not all(module is not None and callable(getattr(module, name, None)) for module, name in required):
         raise ConversationLibraryError(
             "hub_incompatible",
-            "Installed Conversation Hub is missing its library reader. "
+            "Installed Conversation Hub is missing a required source or library API. "
             "Reinstall devnet-control-plane[conversation-hub] with Python 3.12+.",
             503,
         )
-    return read_snapshot, {
+    api = ConversationHubAPI(
+        read_snapshot=loaded["library"].read_snapshot,
+        read_antigravity_sessions=loaded["sources"].read_antigravity_sessions,
+        read_vscode_copilot_sessions=loaded["sources"].read_vscode_copilot_sessions,
+        read_copilot_cli_sessions=loaded["sources"].read_copilot_cli_sessions,
+        read_legacy_imported_chats=loaded["sources"].read_legacy_imported_chats,
+        read_conversations=loaded["library"].read_conversations,
+        conversation_view=loaded["views"].conversation_view,
+    )
+    return api, {
         "implementation": "conversation-hub",
         "version": HUB_READER_VERSION,
         "revision": HUB_READER_REVISION,
     }
+
+
+def _configured_snapshot_reader() -> tuple[SnapshotReader, dict[str, str | None]]:
+    api, info = _configured_hub_api()
+    return api.read_snapshot, info
 
 
 def read_conversation_library(
