@@ -55,13 +55,16 @@ one canonical incubator root, network root, and shared writable runtime director
 for all clients. DNCP never writes knowledge records to that incubator.
 
 ### 1. Installation
-The declared package requires Python >=3.10 and the exact local dependency
-`material-core==0.1.0`; editable/source builds use `setuptools>=61.0` and
+The declared package requires Python >=3.10 and external `material-core` 0.1.0
+pinned to commit `108fe9f309005ac7593fd640fce54bc196262198`;
+editable/source builds use `setuptools>=61.0` and
 `wheel`. Build the core artifact first as documented in
 [the package handover](docs/material-core-package.md), then install/build DNCP
-with that local wheelhouse. The standard-library release builder is a separate path.
+with the preinstalled core wheel. The explicit fetch requires authenticated
+GitHub access; subsequent artifact installs can be offline.
 ```bash
-pip install --no-index --no-build-isolation --find-links dist/material-core -e .
+pip install --no-index dist\material-core\material_core-0.1.0-py3-none-any.whl
+pip install --no-index --no-build-isolation --no-deps -e .
 ```
 
 Verify CLI installation:
@@ -277,10 +280,12 @@ requires human approval. Bounded static extraction stays local; input is never
 executed or fetched, and no LLM or automatic promotion is involved.
 
 The deterministic evidence contract and supplied-byte adapters live in the
-repository-local `material_core` package. DNCP's `control_plane\material_ingestion.py`
+external [material-core](https://github.com/vvaynethomas/material-core) package,
+released as v0.1.0 and pinned to commit
+`108fe9f309005ac7593fd640fce54bc196262198`. DNCP's `control_plane\material_ingestion.py`
 validates the phone-home payload and delegates to that core; phone-home still
 owns routing, receipt metadata and inbox persistence. This is a consumer boundary
-inside the DNCP distribution, not a separately released product or handover.
+with no bundled core source. Independent licensing and ownership remain undecided.
 
 ```powershell
 devnet phone-home ingest 'C:\inputs\notes.md' --target reuse
@@ -447,9 +452,11 @@ runtime import from a sibling checkout. No chat code is moved/refactored here.
 declared as 0.1.0 under **DEC-0015**. It requires an explicitly built
 `material-core==0.1.0` wheel and validates its identity; it never embeds the core:
 ```bash
-python build_material_core.py --output-dir dist/material-core
-python release.py --material-core-wheel dist/material-core/material_core-0.1.0-py3-none-any.whl --output-dir dist/devnet
-pip install --no-index --find-links dist/material-core dist/devnet/devnet_control_plane-0.1.0-py3-none-any.whl
+python build_material_core.py --output-dir dist\material-core
+python release.py --material-core-wheel dist\material-core\material_core-0.1.0-py3-none-any.whl --output-dir dist\devnet
+pip install --no-index dist\material-core\material_core-0.1.0-py3-none-any.whl
+pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
+pip check
 ```
 The core and DNCP each emit their own wheel/source archive and
 `RELEASE_MANIFEST.json` with artifact/source SHA-256 identities. The DNCP

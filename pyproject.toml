@@ -29,7 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = ["material-core==0.1.0"]
+dependencies = ["material-core @ git+https://github.com/vvaynethomas/material-core@108fe9f309005ac7593fd640fce54bc196262198"]
 
 [project.optional-dependencies]
 mcp = [

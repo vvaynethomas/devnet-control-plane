@@ -32,7 +32,7 @@ class TestPhoneHomePackage(unittest.TestCase):
             self.assertNotIn("material_core/__init__.py", archive.namelist())
             metadata = archive.read("devnet_control_plane-0.1.0.dist-info/METADATA").decode()
             self.assertIn("Provides-Extra: mcp", metadata)
-            self.assertIn("Requires-Dist: material-core==0.1.0", metadata)
+            self.assertIn(f"Requires-Dist: {release.MATERIAL_CORE_REQUIREMENT}", metadata)
         manifest = json.loads(Path(built["manifest_path"]).read_text(encoding="utf-8"))
         self.assertEqual(manifest["material_core_artifact"]["sha256"], core["artifacts"][0]["sha256"])
         with tarfile.open(built["sdist"]) as archive:
@@ -59,7 +59,8 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertNotEqual(missing.returncode, 0)
                 self.assertIn("material_core", missing.stderr)
                 self.run_command([str(python), "-m", "pip", "install", "--no-index",
-                                  "--find-links", str(core_dir), str(wheel)])
+                                  str(core["wheel"])])
+                self.run_command([str(python), "-m", "pip", "check"])
                 core_version = self.run_command([
                     str(python), "-c",
                     "from importlib.metadata import version; "
@@ -115,21 +116,23 @@ class TestPhoneHomePackage(unittest.TestCase):
                 "material_core-0.2.0.dist-info/METADATA",
                 "Metadata-Version: 2.1\nName: material-core\nVersion: 0.2.0\n\n",
             )
-            for name in ("material_core/__init__.py", "material_core/contract.py", "material_core/supplied.py"):
+            for name in ("material_core/__init__.py", "material_core/contract.py",
+                         "material_core/safety.py", "material_core/supplied.py"):
                 archive.writestr(name, b"")
         with self.assertRaisesRegex(ValueError, "requires material-core==0.1.0"):
             release.build_release(self.root / "dncp", wrong)
 
     def test_editable_dncp_install_uses_local_exact_core_wheel(self) -> None:
         core_dir = self.root / "material-core"
-        build_material_core.build_release(core_dir)
+        core = build_material_core.build_release(core_dir)
         environment = self.root / "editable-env"
         venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
+        self.run_command([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])])
         self.run_command([
             str(python), "-m", "pip", "install", "--no-index", "--no-build-isolation",
-            "--find-links", str(core_dir), "-e", str(Path(__file__).resolve().parents[1]),
+            "--no-deps", "-e", str(Path(__file__).resolve().parents[1]),
         ])
         self.run_command([
             str(python), "-c",

@@ -12,6 +12,7 @@ import venv
 import zipfile
 
 import build_material_core
+import release
 
 
 class TestMaterialCorePackage(unittest.TestCase):
@@ -24,6 +25,7 @@ class TestMaterialCorePackage(unittest.TestCase):
             manifest = json.loads(Path(artifacts["manifest"]).read_text(encoding="utf-8"))
             self.assertEqual(manifest["name"], "material-core")
             self.assertEqual(manifest["version"], "0.1.0")
+            self.assertEqual(manifest["source_commit"], release.MATERIAL_CORE_COMMIT)
             self.assertEqual(len(manifest["artifacts"]), 2)
 
             with zipfile.ZipFile(wheel) as archive:
@@ -60,6 +62,16 @@ class TestMaterialCorePackage(unittest.TestCase):
                 check=True, capture_output=True, text=True, timeout=30,
             )
             self.assertEqual(result.returncode, 0)
+            manifest_path = Path(artifacts["manifest"])
+            manifest["source_commit"] = "0" * 40
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "immutable source pin"):
+                release.verify_material_core_wheel(wheel)
+            manifest["source_commit"] = release.MATERIAL_CORE_COMMIT
+            manifest["artifacts"][0]["sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "digest"):
+                release.verify_material_core_wheel(wheel)
 
     def test_dncp_consumer_rejects_an_incompatible_installed_core_version(self) -> None:
         root = Path(__file__).resolve().parents[1]

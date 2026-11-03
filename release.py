@@ -23,6 +23,8 @@ DISTRIBUTION_NAME = "devnet_control_plane"
 VERSION = "0.1.0"
 MATERIAL_CORE_NAME = "material-core"
 MATERIAL_CORE_VERSION = "0.1.0"
+MATERIAL_CORE_COMMIT = "108fe9f309005ac7593fd640fce54bc196262198"
+MATERIAL_CORE_REQUIREMENT = f"material-core @ git+https://github.com/vvaynethomas/material-core@{MATERIAL_CORE_COMMIT}"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -76,7 +78,8 @@ def verify_material_core_wheel(path: Path) -> dict[str, object]:
             raise ValueError("material-core wheel must contain exactly one METADATA file")
         metadata = Parser().parsestr(archive.read(metadata_paths[0]).decode("utf-8"))
         if not all(name in names for name in (
-            "material_core/__init__.py", "material_core/contract.py", "material_core/supplied.py"
+            "material_core/__init__.py", "material_core/contract.py",
+            "material_core/safety.py", "material_core/supplied.py"
         )):
             raise ValueError("material-core wheel is missing required package modules")
     if metadata["Name"] != MATERIAL_CORE_NAME or metadata["Version"] != MATERIAL_CORE_VERSION:
@@ -85,6 +88,15 @@ def verify_material_core_wheel(path: Path) -> dict[str, object]:
             f"got {metadata['Name']}=={metadata['Version']}"
         )
     data = path.read_bytes()
+    manifest_path = path.parent / "RELEASE_MANIFEST.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("source_commit") != MATERIAL_CORE_COMMIT:
+        raise ValueError("core artifact provenance does not match the immutable source pin")
+    artifacts = manifest.get("artifacts", [])
+    if not any(artifact.get("filename") == path.name
+               and artifact.get("sha256") == compute_sha256(data)
+               for artifact in artifacts):
+        raise ValueError("core artifact digest does not match its source manifest")
     return {"filename": path.name, "version": metadata["Version"], "sha256": compute_sha256(data),
             "size_bytes": len(data)}
 
@@ -102,7 +114,7 @@ Summary: Autonomous Development Network Control Plane and Interaction Frame Lab
 Author: Development Network Operator
 License: MIT
 Requires-Python: >=3.10
-Requires-Dist: material-core=={MATERIAL_CORE_VERSION}
+Requires-Dist: {MATERIAL_CORE_REQUIREMENT}
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -234,17 +246,18 @@ def build_release(output_dir: Path, material_core_wheel: Path) -> dict[str, obje
         "deliverable_id": "ART-0008",
         "runtime_requirements": {
             "python": ">=3.10",
-            "dependencies": [f"{MATERIAL_CORE_NAME}=={MATERIAL_CORE_VERSION}"],
+            "dependencies": [MATERIAL_CORE_REQUIREMENT],
             "optional_extras": ["openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "material_core_artifact": core_artifact,
+        "material_core_source_commit": MATERIAL_CORE_COMMIT,
         "artifacts": artifacts,
         "source_inventory": {
             "file_count": len(sources),
             "digests": source_digests,
         },
         "consumer_pin": {
-            "pip_command": f"pip install --no-index --find-links <core-wheelhouse> dist/{wheel_path.name}",
+            "pip_command": f"pip install --no-index <core-wheel>; pip install --no-index --no-deps dist/{wheel_path.name}; pip check",
             "requirements_entry": f"{PACKAGE_NAME}=={VERSION}",
             "sha256_pin": f"{PACKAGE_NAME}=={VERSION} --hash=sha256:{compute_sha256(wheel_bytes)}",
         },

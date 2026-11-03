@@ -1,86 +1,69 @@
-# Material Core package handover
+# Material Core publication and consumer handover
 
-## Separate artifacts and pin
+The independent private repository is
+[vvaynethomas/material-core](https://github.com/vvaynethomas/material-core).
+[Release v0.1.0](https://github.com/vvaynethomas/material-core/releases/tag/v0.1.0)
+points to `108fe9f309005ac7593fd640fce54bc196262198`. DNCP's standard metadata
+and custom wheel metadata use the immutable direct requirement:
 
-`material_core\` is a separately buildable Python distribution named
-`material-core`, version `0.1.0`, requiring Python 3.10 or later and no runtime
-dependencies. DNCP's `pyproject.toml` pins `material-core==0.1.0`; its
-`control_plane\material_ingestion.py` also checks the imported core version and
-fails loudly if it is not exactly `0.1.0`. DNCP wheels and sdists do not contain
-a copy of the `material_core` package.
+```text
+material-core @ git+https://github.com/vvaynethomas/material-core@108fe9f309005ac7593fd640fce54bc196262198
+```
 
-Build both core artifacts offline from this source checkout:
+The repository contains only the Python package, standalone tests, package
+metadata, README and CHANGELOG. There is no DNCP registry, orchestration, UI,
+storage, discovery, or repository-scanning dependency. DNCP no longer includes
+the `material_core` sources; it retains its payload adapter and checks core
+version 0.1.0 explicitly.
+
+## Authenticated installation
+
+Use an authenticated Git credential helper, never a token embedded in a URL:
+
+```powershell
+python -m pip install git+https://github.com/vvaynethomas/material-core@v0.1.0
+python -m pip install .
+```
+
+The tag command is a convenience smoke check; DNCP pins the full commit rather
+than trusting a movable tag. Missing repository access, missing package and
+incompatible versions fail explicitly; there is no local-source fallback.
+
+## Explicit fetch, then offline build/install
+
+`build_material_core.py` now fetches only the immutable external repository
+commit and builds a wheel and source archive. It requires authenticated GitHub
+access for that explicit fetch and locally installed setuptools/wheel. Package
+tests exercising this helper also require that access. It does not download
+build dependencies or use an in-tree implementation.
 
 ```powershell
 python build_material_core.py --output-dir dist\material-core
-```
-
-Artifacts:
-
-- `dist\material-core\material_core-0.1.0-py3-none-any.whl`
-- `dist\material-core\material_core-0.1.0.tar.gz`
-- `dist\material-core\RELEASE_MANIFEST.json`
-
-The builder creates its wheel from the source archive with `pip wheel
---no-deps --no-index --no-build-isolation`. It requires locally installed
-setuptools and wheel; it does not fetch build dependencies.
-
-Install the core by itself in an offline environment:
-
-```powershell
-python -m pip install --no-index --find-links dist\material-core material-core==0.1.0
-```
-
-Consumer application development install:
-
-```powershell
-python -m pip install --no-index --no-build-isolation --find-links dist\material-core -e .
-```
-
-Build DNCP's custom artifacts only when the exact core wheel is supplied:
-
-```powershell
 python release.py --material-core-wheel dist\material-core\material_core-0.1.0-py3-none-any.whl --output-dir dist\devnet
-```
-
-`release.py` rejects a missing, malformed, incomplete, or differently versioned
-core wheel. Its manifest records the pinned filename, version, byte size and
-SHA-256. Install DNCP and resolve that dependency solely from the local wheelhouse:
-
-```powershell
-python -m pip install --no-index --find-links dist\material-core dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
-```
-
-The ordinary setuptools wheel built from DNCP's source archive has the same
-`Requires-Dist: material-core==0.1.0` metadata and uses the same local `--find-links`
-install process. Build that wheel without dependency downloads with:
-
-```powershell
 python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir dist\devnet-standard dist\devnet\devnet_control_plane-0.1.0.tar.gz
+python -m pip install --no-index dist\material-core\material_core-0.1.0-py3-none-any.whl
+python -m pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
+python -m pip check
 ```
 
-## Boundary and evidence
+For editable offline DNCP installation, preinstall that core wheel, then use
+`python -m pip install --no-index --no-build-isolation --no-deps -e .`.
+`--no-deps` is necessary because a direct Git requirement cannot be resolved
+from `--find-links`; `pip check` confirms the installed version, not its source
+commit. The helper's manifest records the verified source commit and source/
+artifact hashes, while DNCP records the core wheel digest and immutable source
+requirement. Preserve those manifests for offline provenance.
 
-`material_core.digest_material(raw, name=..., format=..., identity=...,
-target=...)` and `SuppliedMaterialDigester` process explicit bytes only.
-Contract types are in `material_core\contract.py`; the safety token pattern is
-in `material_core\safety.py`. There is no network, source discovery, execution,
-DNCP import, registry/runtime setup, inventory comparison, or persistence in
-the core package. Its evidence format preserves the existing extractor name,
-provenance, gaps, refusals, caps and supported format behavior.
+## Scope and approval limits
 
-`build_material_core.py` emits the standalone wheel, source archive, and a
-manifest with source digests, build-source commit, artifact digests and sizes.
-DNCP's manifest independently records the exact core wheel digest it was built
-against. Current local artifact paths are under `dist\material-core\` and
-`dist\devnet\`; these build outputs are git-ignored and are not published
-releases. Rebuild them from the committed source before distributing.
+`material_core.digest_material(...)` processes explicit bytes only, preserving
+supported formats, provenance, scalar fidelity, gaps, refusals and caps.
+DNCP retains network intake, inbox persistence, Git revision access, registration,
+opt-in scanning and cached Fabric comparison in its own modules.
 
-The source was separated from DNCP commit
-`c57d6157fcb87db3eea3f736832cbb1a061cebc4`, whose package metadata declares MIT.
-No independent license file, ownership transfer, or approval to publish this
-distribution is established here. Preserve source provenance and resolve those
-owner decisions before any external publication. This package split does not
-make DNCP-specific whole-repository scanning portable: Git revision access,
-registration, opt-in and cached Fabric comparison remain in
-`control_plane\repo_metabolizer.py`.
+The clean initial core commit cites DNCP source commit
+`c57d6157fcb87db3eea3f736832cbb1a061cebc4` and packaging commit
+`1cbadfa9b4476dc4316099418e153b6aabf8b2fd`. Originating DNCP metadata declared
+MIT; independent licensing/ownership remain undecided. No license file or new
+license grant was added, and this private release does not authorize public
+redistribution or ownership transfer.

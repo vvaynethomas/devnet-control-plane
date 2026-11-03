@@ -242,8 +242,9 @@ class TestRepositoryDigester(unittest.TestCase):
         venv.EnvBuilder(with_pip=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
-        subprocess.run([str(python), "-m", "pip", "install", "--no-index", "--find-links",
-                        str(self.root / "material-core"), wheel],
+        subprocess.run([str(python), "-m", "pip", "install", "--no-index", str(core["wheel"])],
+                       cwd=self.root, check=True, capture_output=True, timeout=60)
+        subprocess.run([str(python), "-m", "pip", "install", "--no-index", "--no-deps", wheel],
                        cwd=self.root, check=True, capture_output=True, timeout=60)
         args = [str(python), "-m", "control_plane.cli", "--data-dir", str(self.data),
                 "--factory-root", str(self.root / "missing"), "digest"]

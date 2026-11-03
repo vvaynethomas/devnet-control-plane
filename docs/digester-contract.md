@@ -1,6 +1,7 @@
 # Digester contract v1
 
-`material_core\contract.py` defines the repo-agnostic
+The external [material-core](https://github.com/vvaynethomas/material-core)
+package's `material_core\contract.py` defines the repo-agnostic
 `Digester.digest(MaterialReference, target="") -> Digestion` contract;
 `control_plane\digester.py` re-exports it for compatibility. The
 `material_core` package contains deterministic processing and shared evidence

@@ -1,11 +1,13 @@
 # Explicit material ingestion: bounded first slice
 
-The reusable deterministic processing contract is owned in this repository by
+The reusable deterministic processing contract is owned by the private
+[material-core repository](https://github.com/vvaynethomas/material-core), in
 `material_core\contract.py`, `material_core\safety.py`, and
 `material_core\supplied.py`. The `material_core` package processes explicit bytes
 only; it does not depend on DNCP services or perform discovery, network access,
-execution, or persistence. It is included in the DNCP package distribution but
-has not been separately published or handed over as an independent product.
+execution, or persistence. It is released separately as v0.1.0; DNCP contains
+no source copy and pins commit `108fe9f309005ac7593fd640fce54bc196262198`.
+Independent licensing and ownership approval remain undecided.
 DNCP's `control_plane\material_ingestion.py` is the payload adapter: it validates
 the intake schema, decodes text/base64 and delegates to `digest_material`.
 `phone_home.py` remains responsible for intake receipt, idempotency and inbox
