@@ -405,6 +405,16 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertEqual(session["turns"][0]["tool_calls"], [])
         self.assertNotIn("excludedtoolneedle", json.dumps(session))
         self.assertNotIn("excludedsummaryneedle", json.dumps(session))
+        events = [
+            {"role": "tool", "message": "first permitted synthetic tool title"},
+            {"role": "user", "message": "later permitted synthetic user prompt"},
+        ]
+        (self.cli_root / "session-b" / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8",
+        )
+        session = scan_cli(self.cli_root)[0]
+        self.assertEqual(session["title"], events[0]["message"])
+        self.assertEqual(session["turns"][0]["user_prompt"], events[1]["message"])
 
     def _write_cli_physical_window_fixture(self) -> None:
         lines = ["\n", json.dumps({"event": "unsupported"}) + "\n"] * 49

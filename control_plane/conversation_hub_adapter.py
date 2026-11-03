@@ -122,14 +122,17 @@ def _session_from_conversation(
             }
             for message in selected(view.unassigned_messages)
         ]
-        title = (metadata.title if source_kind != "copilot-cli" else None) or next(
-            (turn["user_prompt"].replace("\n", " ")[:90] for turn in turns if turn["user_prompt"]),
-            next(
+        if source_kind == "copilot-cli":
+            title = next(
                 (content(message).replace("\n", " ")[:90]
                  for message in messages if len(message.content.strip()) > 15),
                 f"Session {source_id[:8]}",
-            ) if source_kind == "copilot-cli" else f"Session {source_id[:8]}",
-        )
+            )
+        else:
+            title = metadata.title or next(
+                (turn["user_prompt"].replace("\n", " ")[:90] for turn in turns if turn["user_prompt"]),
+                f"Session {source_id[:8]}",
+            )
         model = metadata.model or fallback_model
         workspace = metadata.workspace or (
             "VS Code Workspace" if source_kind == "vscode-copilot" else

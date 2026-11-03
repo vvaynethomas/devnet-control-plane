@@ -99,8 +99,8 @@ without relabeling it as user or assistant dialogue.
 Local token totals include redacted tool/system/unknown content in a separate
 `est_unclassified_tokens` estimate, not an invented input/output split. Known
 user/assistant roles outside dialogue turns remain classifiable. CLI sessions
-without a user prompt use their first suitable redacted message as a fallback
-title from permitted display messages only, rather than fabricating a dialogue
+use their first qualifying redacted message as the title regardless of role,
+from permitted display messages only, rather than fabricating a dialogue
 turn or exposing a later excluded prompt through metadata. CLI estimates cover
 all qualifying messages in the selected source window, including messages beyond
 the ten displayed snippets; title, dialogue and search remain display-bounded.
