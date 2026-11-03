@@ -19,7 +19,7 @@ from typing import Any
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
-from control_plane.conversation_library import ConversationLibraryError
+from control_plane.conversation_library import ConversationLibraryError, _configured_hub_api
 from control_plane.conversation_hub_adapter import local_source_path, read_local_sessions
 
 logger = logging.getLogger(__name__)
@@ -149,6 +149,7 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
     if not transcript_path.is_file():
         return turns
     try:
+        _configured_hub_api()
         selected_path = transcript_path.resolve(strict=True)
         if (
             selected_path.name != "transcript.jsonl"

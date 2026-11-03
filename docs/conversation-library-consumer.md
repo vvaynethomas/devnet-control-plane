@@ -82,6 +82,17 @@ without changing directory-first selection behavior. DNCP explicitly requests
 directory-first rather than relying on the reader's default policy. VS Code and
 CLI omissions and producer limitations are included in diagnostics or logs.
 Legacy imported-chat SQLite reads are read-only.
+Local-source responses keep filesystem paths in `source_path` and retain Hub's
+original file URI separately as `source_uri`. CLI Fabric indexing and conversation
+presentation preserve the redacted producer message order, including unassigned
+preludes and attached tool/unknown messages. Search includes that visible content
+without relabeling it as user or assistant dialogue.
+Local token totals include redacted tool/system/unknown content in a separate
+`est_unclassified_tokens` estimate, not an invented input/output split. Known
+user/assistant roles outside dialogue turns remain classifiable. CLI sessions
+without a user prompt use their first suitable redacted message as a fallback
+title, rather than fabricating a dialogue turn. Imported-chat and no-Hub
+token-estimation behavior is unchanged.
 Without the optional dependency, existing DNCP readers remain as a logged/visible
 compatibility path. An installed but
 mismatched package fails explicitly and does not fall back.
@@ -203,6 +214,8 @@ surfaces without opening a real history. Remaining boundaries are:
 | Raw-text import / writes | DNCP's existing user-initiated raw-text import and its legacy SQLite persistence are not migrated: v0.1.4 offers a read-only legacy database adapter, not an equivalent user import, write, or deletion lifecycle. Existing behavior remains DNCP-owned. |
 | Fabric / UI semantics | Fabric indexing and the existing UI remain DNCP responsibilities. Token estimates remain DNCP heuristics, not Hub metrics. Producer limits and unversioned-source limitations are exposed through diagnostics; this is not complete history or identity reconciliation. |
 | Handoff | Antigravity selection and parsing now consume Hub's directory-first projection, while DNCP retains its existing handoff Markdown format and selection UI. No automatic handoff or transmission is added. |
+| Malformed-source compatibility | v0.1.4 aborts the whole selected batch on a malformed Antigravity, VS Code, or CLI transcript. Legacy DNCP skips malformed files and retains valid siblings. This is an unresolved compatibility regression; do not qualify or land the migrated readers until the producer provides an opt-in per-file failure policy retaining root/file/event bounds and redacted diagnostics. DNCP does not retry smaller subsets or use private producer parsing helpers to evade those bounds. |
+| Direct transcript compatibility | With no Hub installed, handoff still parses exactly the supplied existing file, regardless of layout or sibling cap, skipping malformed lines. With v0.1.4 installed, the root-only API cannot preserve this behavior for off-layout files or files beyond the sibling cap. An explicit-file producer API with bounded, opt-in malformed-line skipping is required. An incompatible installed Hub always fails closed. |
 | Product acceptance | Real-history authorization, cross-source identity reconciliation, source-freshness evidence, a stable tagged consumer contract, and owner acceptance remain open. Component/prompt release tracking belongs in ALM's release gate. |
 
 These are release and behavior gates, not a request to add scanning, syncing, or

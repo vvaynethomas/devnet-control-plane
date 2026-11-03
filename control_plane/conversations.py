@@ -458,7 +458,16 @@ class UnifiedConversationHub:
                 continue
             if q_lower:
                 text_to_search = (s["title"] + " " + s["model"] + " " + s["workspace"] + " " +
-                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", []))).lower()
+                                  " ".join(t["user_prompt"] + " " + " ".join(t["assistant_responses"]) for t in s.get("turns", [])) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for message in s.get("unassigned_messages", [])
+                                  ) + " " +
+                                  " ".join(
+                                      redact_secrets(message["content"])
+                                      for turn in s.get("turns", [])
+                                      for message in turn.get("other_messages", [])
+                                  )).lower()
                 if q_lower not in text_to_search:
                     continue
             filtered.append(s)
@@ -467,6 +476,7 @@ class UnifiedConversationHub:
         total_tokens = sum(s.get("est_total_tokens", 0) for s in all_sessions)
         total_in = sum(s.get("est_input_tokens", 0) for s in all_sessions)
         total_out = sum(s.get("est_output_tokens", 0) for s in all_sessions)
+        total_unclassified = sum(s.get("est_unclassified_tokens", 0) for s in all_sessions)
         total_turns = sum(s.get("turn_count", 0) for s in all_sessions)
 
         platforms_count: dict[str, int] = {}
@@ -485,6 +495,7 @@ class UnifiedConversationHub:
                 "est_total_tokens": total_tokens,
                 "est_input_tokens": total_in,
                 "est_output_tokens": total_out,
+                "est_unclassified_tokens": total_unclassified,
                 "platforms": platforms_count,
                 "models": models_count,
             },

@@ -1207,6 +1207,10 @@ class ControlPlaneWorkbench:
             # Analytics & Tokenomics Cards
             plat_chips = " · ".join(f"{p}: {c}" for p, c in summary["platforms"].items()) or "None detected"
             model_chips = " · ".join(f"{m}: {c}" for m, c in summary["models"].items()) or "None detected"
+            unclassified_summary = (
+                f" · Unclassified: ~{summary['est_unclassified_tokens']:,} (no input/output role)"
+                if summary.get("est_unclassified_tokens", 0) else ""
+            )
 
             stats_html = f"""
             <div class="stats-row">
@@ -1223,7 +1227,7 @@ class ControlPlaneWorkbench:
               <div class="stat-card">
                 <div class="stat-label">Tokenomics (Est. Total)</div>
                 <div class="stat-value">~{summary['est_total_tokens']:,}</div>
-                <div class="stat-sub">In: ~{summary['est_input_tokens']:,} · Out: ~{summary['est_output_tokens']:,}</div>
+                <div class="stat-sub">In: ~{summary['est_input_tokens']:,} · Out: ~{summary['est_output_tokens']:,}{unclassified_summary}</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">Active Platforms</div>
@@ -1329,6 +1333,10 @@ class ControlPlaneWorkbench:
             # Selected Session Turns Viewer with Granular Copy Controls
             dialogue_html = ""
             if selected_session:
+                unclassified_session = (
+                    f" / {selected_session['est_unclassified_tokens']:,} unclassified; no input/output role"
+                    if selected_session.get("est_unclassified_tokens", 0) else ""
+                )
                 sid = selected_session["session_id"]
                 handoff = compile_context_handoff(
                     session_id=selected_session.get("full_session_id", sid),
@@ -1364,6 +1372,35 @@ class ControlPlaneWorkbench:
                         </button>"""
 
                     full_turn_text = f"USER:\n{u_prompt}\n\nASSISTANT:\n{a_resp}"
+                    if "messages" in t:
+                        full_turn_text = "\n\n".join(
+                            f"{message['role'].upper()}:\n{message['content']}"
+                            for message in t["messages"]
+                        )
+                        ordered_html = "".join(
+                            f"""
+                            <div style="margin-bottom:12px;">
+                              <span class="badge badge-neutral">{escape(message['role'])}</span>
+                              <span class="muted">source role: {escape(message['source_role'])}</span>
+                              <div style="padding:8px 10px; background:var(--surface-2); border-radius:6px; white-space:pre-wrap;">{escape(message['content'])}</div>
+                            </div>
+                            """
+                            for message in t["messages"]
+                        )
+                        turns_rendered.append(f"""
+                        <div class="card" style="margin-bottom:14px; background:var(--surface);">
+                          <strong>Turn #{t_idx}</strong>
+                          <span class="muted">{escape(t.get('timestamp', '')[:19])}</span>
+                          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px;">
+                            <button class="btn btn-sm" type="button" onclick="copySnippet(`{escape(full_turn_text).replace('`', '\\`')}`, this)">Copy Full Turn</button>
+                            <button class="btn btn-sm" type="button" onclick="copySnippet(`{escape(u_prompt).replace('`', '\\`')}`, this)">Copy Prompt</button>
+                            <button class="btn btn-sm" type="button" onclick="copySnippet(`{escape(a_resp).replace('`', '\\`')}`, this)">Copy Reply</button>
+                            {code_btn}
+                          </div>
+                          {ordered_html}
+                        </div>
+                        """)
+                        continue
 
                     turns_rendered.append(f"""
                     <div class="card" style="margin-bottom:14px; background:var(--surface);">
@@ -1427,7 +1464,7 @@ class ControlPlaneWorkbench:
                           <span class="muted" style="font-size:0.8rem;">{escape(selected_session.get('created_date', ''))}</span>
                         </div>
                         <h2 style="margin:0 0 4px 0;">{escape(selected_session['title'])}</h2>
-                        <p class="muted" style="margin:0; font-size:0.82rem;">{selected_session['turn_count']} dialogue turns · ~{selected_session['est_total_tokens']:,} total tokens ({selected_session['est_input_tokens']:,} in / {selected_session['est_output_tokens']:,} out)</p>
+                        <p class="muted" style="margin:0; font-size:0.82rem;">{selected_session['turn_count']} dialogue turns · ~{selected_session['est_total_tokens']:,} total tokens ({selected_session['est_input_tokens']:,} in / {selected_session['est_output_tokens']:,} out{unclassified_session})</p>
                       </div>
                       <div>
                         <button class="btn btn-primary" type="button" onclick="copySnippet(`{escape(handoff_md).replace('`', '\\`')}`, this)">
@@ -1436,8 +1473,8 @@ class ControlPlaneWorkbench:
                       </div>
                     </div>
                   </div>
-                  {''.join(turns_rendered)}
                   {''.join(unassigned_rendered)}
+                  {''.join(turns_rendered)}
                 </div>
                 """
             else:

@@ -285,19 +285,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
         for item in diagnostics:
             logger.warning("Copilot CLI source adapter: %s", item)
         for session in sessions:
-            snippets: list[str] = []
-            for turn in session["turns"]:
-                snippets.extend(
-                    [turn["user_prompt"]]
-                    + turn["assistant_responses"]
-                    + [
-                        message["content"]
-                        for message in turn.get("other_messages", [])
-                    ]
-                )
-            snippets.extend(
-                message["content"] for message in session.get("unassigned_messages", [])
-            )
+            snippets = [message["content"] for message in session["messages"]]
             snippets = [text for text in snippets if isinstance(text, str) and len(text.strip()) > 15]
             if not snippets:
                 continue

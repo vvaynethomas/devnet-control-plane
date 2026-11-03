@@ -53,6 +53,7 @@ def _session_from_conversation(
     source_id = conversation.source.session_id
     source_record = conversation.source_record
     unassigned_messages: list[dict[str, str]] = []
+    unclassified_tokens = 0
     if source_kind == "legacy":
         session_id = source_id
         platform = conversation.source.platform
@@ -91,6 +92,10 @@ def _session_from_conversation(
                     for message in turn.other_messages
                 ],
                 "tool_calls": list(turn.tool_calls),
+                "messages": [
+                    {"role": message.role, "source_role": message.source_role, "content": message.content}
+                    for message in turn.messages
+                ],
             })
         unassigned_messages = [
             {
@@ -102,7 +107,11 @@ def _session_from_conversation(
         ]
         title = metadata.title or next(
             (turn["user_prompt"].replace("\n", " ")[:90] for turn in turns if turn["user_prompt"]),
-            f"Session {source_id[:8]}",
+            next(
+                (message.content.replace("\n", " ")[:90]
+                 for message in view.messages if len(message.content.strip()) > 15),
+                f"Session {source_id[:8]}",
+            ) if source_kind == "copilot-cli" else f"Session {source_id[:8]}",
         )
         model = metadata.model or fallback_model
         workspace = metadata.workspace or (
@@ -113,6 +122,18 @@ def _session_from_conversation(
         input_tokens = sum(estimate_tokens(turn["user_prompt"]) for turn in turns)
         output_tokens = sum(
             estimate_tokens(text) for turn in turns for text in turn["assistant_responses"]
+        )
+        input_tokens += sum(
+            estimate_tokens(message.content)
+            for message in view.unassigned_messages if message.role == "user"
+        )
+        output_tokens += sum(
+            estimate_tokens(message.content)
+            for message in view.unassigned_messages if message.role == "assistant"
+        )
+        unclassified_tokens = sum(
+            estimate_tokens(message.content)
+            for message in view.messages if message.role not in {"user", "assistant"}
         )
         turn_count = len(turns)
         source_uri = source_record.get("source_path") or conversation.provenance.export_uri
@@ -133,9 +154,16 @@ def _session_from_conversation(
         "turn_count": turn_count,
         "est_input_tokens": input_tokens,
         "est_output_tokens": output_tokens,
-        "est_total_tokens": input_tokens + output_tokens,
+        "est_total_tokens": input_tokens + output_tokens + unclassified_tokens,
         "source_path": source_path,
-        **({"source_uri": source_uri} if source_kind != "legacy" else {}),
+        **({
+            "source_uri": source_uri,
+            "est_unclassified_tokens": unclassified_tokens,
+            "messages": [
+                {"role": message.role, "source_role": message.source_role, "content": message.content}
+                for message in view.messages
+            ],
+        } if source_kind != "legacy" else {}),
     }
 
 
