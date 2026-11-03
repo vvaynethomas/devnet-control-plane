@@ -16,22 +16,13 @@ import re
 import subprocess
 import sys
 from typing import Any
-from urllib.parse import unquote, urlsplit
-from urllib.request import url2pathname
 
 from control_plane import FACTORY_ROOT, DEV_NETWORK_ROOT
 from control_plane.fabric import redact_secrets, ID_RE
 from control_plane.conversation_library import ConversationLibraryError
-from control_plane.conversation_hub_adapter import read_local_sessions
+from control_plane.conversation_hub_adapter import local_source_path, read_local_sessions
 
 logger = logging.getLogger(__name__)
-
-
-def _local_source_path(uri: str) -> Path:
-    parsed = urlsplit(uri)
-    if parsed.scheme != "file" or parsed.netloc not in {"", "localhost"}:
-        raise ValueError("Conversation Hub returned a non-local source URI for a local transcript")
-    return Path(url2pathname(unquote(parsed.path)))
 
 
 def _get_git_state(repo_dir: Path) -> dict[str, str]:
@@ -92,7 +83,7 @@ def discover_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
             if not user_turns:
                 continue
             last_turn_time = user_turns[-1]["timestamp"]
-            source_path = _local_source_path(session["source_path"])
+            source_path = local_source_path(session["source_path"])
             last_turn_time = last_turn_time[:19] if last_turn_time else ""
             sessions.append({
                 "session_id": session["full_session_id"],
@@ -189,7 +180,7 @@ def parse_session_turns(transcript_path: Path) -> list[dict[str, Any]]:
         for item in diagnostics:
             logger.warning("Antigravity handoff source adapter: %s", item)
         selected = next(
-            (session for session in sessions if Path(_local_source_path(session["source_path"])) == selected_path),
+            (session for session in sessions if local_source_path(session["source_path"]) == selected_path),
             None,
         )
         if selected is None:
