@@ -7,9 +7,12 @@ import importlib.util
 import io
 import json
 from importlib.metadata import PackageNotFoundError
+from pathlib import PurePosixPath
 from pathlib import Path
 import sqlite3
+import sys
 import tempfile
+from types import ModuleType
 import unittest
 from unittest.mock import patch
 
@@ -396,6 +399,67 @@ class ConversationLibraryTests(unittest.TestCase):
                 _configured_snapshot_reader()
         self.assertEqual(caught.exception.code, "hub_incompatible")
         self.assertIn("pinned v0.1.1 commit", str(caught.exception))
+
+    def test_checked_distribution_loading_ignores_path_shadow_and_preloaded_modules(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            distribution_root = root / "site-packages"
+            package_dir = distribution_root / "conversation_hub"
+            package_dir.mkdir(parents=True)
+            (package_dir / "model.py").write_text("TOKEN = 'checked-distribution'\n", encoding="utf-8")
+            library_path = package_dir / "library.py"
+            library_path.write_text(
+                "from .model import TOKEN\n"
+                "def read_snapshot(path):\n"
+                "    return TOKEN\n",
+                encoding="utf-8",
+            )
+            shadow_dir = root / "shadow"
+            shadow_package = shadow_dir / "conversation_hub"
+            shadow_package.mkdir(parents=True)
+            marker = root / "shadow-executed"
+            (shadow_package / "__init__.py").write_text("", encoding="utf-8")
+            (shadow_package / "library.py").write_text(
+                f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+                "def read_snapshot(path):\n"
+                "    return 'shadow'\n",
+                encoding="utf-8",
+            )
+
+            class CheckedDistribution:
+                version = "0.1.1"
+                files = [
+                    PurePosixPath("conversation_hub/library.py"),
+                    PurePosixPath("conversation_hub/model.py"),
+                ]
+
+                @staticmethod
+                def read_text(name: str) -> str:
+                    return json.dumps({
+                        "url": "https://github.com/vvaynethomas/conversation-hub.git",
+                        "vcs_info": {"commit_id": "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2"},
+                    })
+
+                @staticmethod
+                def locate_file(name: str) -> Path:
+                    return distribution_root / name
+
+            hostile_parent = ModuleType("conversation_hub")
+            hostile_parent.__path__ = [str(shadow_package)]
+            hostile_library = ModuleType("conversation_hub.library")
+            hostile_library.read_snapshot = lambda path: "preloaded-shadow"
+            with patch("control_plane.conversation_library.distribution", return_value=CheckedDistribution()):
+                with patch.dict(sys.modules, {
+                    "conversation_hub": hostile_parent,
+                    "conversation_hub.library": hostile_library,
+                }):
+                    with patch("sys.path", [str(shadow_dir), *sys.path]):
+                        reader, info = _configured_snapshot_reader()
+
+            self.assertEqual(reader(None), "checked-distribution")
+            self.assertEqual(Path(reader.__globals__["__file__"]), library_path)
+            self.assertEqual(info["revision"], "2e00f9861ea60b083aaf7d0be779bcef1e23d7c2")
+            self.assertFalse(marker.exists())
 
     def test_pinned_hub_reader_reads_synthetic_library_when_extra_is_installed(self) -> None:
         if importlib.util.find_spec("conversation_hub") is None:

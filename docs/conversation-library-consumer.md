@@ -47,9 +47,14 @@ When installed, the consumer opens the library through the pinned package's
 `conversation_hub.library.read_snapshot(Path)` API, which provides a validated
 read-only connection inside a transaction. DNCP keeps additional bounded record
 and schema checks for its output contract. At runtime, DNCP verifies the installed
-distribution version, VCS source URL, and full commit from its `direct_url.json`;
-it refuses an unpinned or incompatible installation. The output's `library_reader`
-field reports the Hub version and exact commit used.
+distribution version, VCS source URL, and full commit from its `direct_url.json`,
+then loads `library.py` and `model.py` directly from files owned by that checked
+distribution under a private module namespace. It does not resolve
+`conversation_hub` through `sys.path` or reuse an already-loaded module; absent or
+incompatible distribution files fail explicitly. PEP 610 metadata records
+installation provenance, not byte integrity: it does not prove that installed
+files were not modified after installation. The output's `library_reader` field
+reports the Hub version and recorded commit used.
 Phone-home's bounded repository check identified existing DNCP conversation,
 Fabric and handoff modules. The CLI does not invoke their collectors, create
 another parser/store, or follow export URIs.
