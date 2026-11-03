@@ -436,6 +436,47 @@ class ConversationHubAdapterTests(unittest.TestCase):
         self.assertIn("line120", fabric[0]["body"])
         self.assertNotIn("malformed", fabric[0]["body"])
 
+    def _write_invalid_utf8_source_fixtures(self) -> Path:
+        transcript = self.session_dir / ".system_generated" / "logs" / "transcript.jsonl"
+        transcript.write_bytes(
+            b'{"type":"USER_INPUT","content":"synthetic invalid \xff prompt"}\n'
+            b'{"type":"PLANNER_RESPONSE","content":"synthetic invalid \xff answer"}\n'
+        )
+        (self.vscode_root / "workspace-a" / "chatSessions" / "chat-a.jsonl").write_bytes(
+            b'{"v":{"inputText":"synthetic invalid \xff vscode prompt"}}\n'
+            b'{"v":"synthetic invalid \xff vscode answer"}\n'
+        )
+        (self.cli_root / "session-b" / "events.jsonl").write_bytes(
+            b'{"role":"user","message":"synthetic invalid \xff cli prompt"}\n'
+            + b'\n' * 119
+            + b'{"message":"invalid \xff beyond both windows"}\n'
+        )
+        return transcript
+
+    def test_no_hub_replacement_decoding_preserves_selected_source_content(self) -> None:
+        transcript = self._write_invalid_utf8_source_fixtures()
+        hub = UnifiedConversationHub(data_dir=self.root / "replace-legacy")
+        with patch.object(hub, "_get_hub_api", return_value=None):
+            for sessions in (
+                hub.scan_antigravity(self.brain_root),
+                hub.scan_vscode_copilot(self.vscode_root),
+                hub.scan_copilot_cli(self.cli_root),
+            ):
+                self.assertEqual(len(sessions), 1)
+                self.assertIn("\ufffd", json.dumps(sessions, ensure_ascii=False))
+                self.assertNotIn("beyond both windows", json.dumps(sessions))
+        unavailable = ConversationLibraryError("hub_unavailable", "optional unavailable", 503)
+        with patch("control_plane.handoff._configured_hub_api", side_effect=unavailable):
+            turns = parse_session_turns(transcript)
+        self.assertIn("\ufffd", turns[0]["user_prompt"])
+        self.assertIn("\ufffd", turns[0]["assistant_responses"][0])
+        with patch("control_plane.conversation_hub_adapter._configured_hub_api", side_effect=unavailable), \
+             patch("control_plane.fabric.os.path.expanduser", return_value=str(self.home)):
+            for records in (_harvest_antigravity_sessions(), _harvest_copilot_sessions()):
+                self.assertEqual(len(records), 1)
+                self.assertIn("\ufffd", records[0]["body"])
+                self.assertNotIn("beyond both windows", records[0]["body"])
+
     def test_handoff_round_trips_literal_escape_and_space_paths(self) -> None:
         try:
             _configured_hub_api()
