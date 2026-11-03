@@ -26,10 +26,38 @@ which merged PRJ-0006's explicit local reader contract:
   initialization. DEC-0016 and ART-0008/0009/0010 remain draft evidence, not product
   acceptance or an approved long-term UI contract.
 
+The standalone `conversation-hub` package is pinned as an **optional** dependency
+at verified v0.1.1 commit
+[`2e00f9861ea60b083aaf7d0be779bcef1e23d7c2`](https://github.com/vvaynethomas/conversation-hub/commit/2e00f9861ea60b083aaf7d0be779bcef1e23d7c2).
+The earlier v0.1.0 candidate is not used. Install this private extra with Python
+3.12+ and repository access:
+
+```powershell
+python -m pip install '.[conversation-hub]'
+```
+
+The extra is marker-gated to Python >=3.12 because that is the producer's declared
+minimum. DNCP's base install remains dependency-free and supports Python >=3.10;
+unrelated features continue working on 3.10/3.11. The
+`conversation-library` command requires the extra and returns `hub_unavailable`
+with installation guidance if it is absent; it does not silently use a DNCP
+fallback reader.
+
+When installed, the consumer opens the library through the pinned package's
+`conversation_hub.library.read_snapshot(Path)` API, which provides a validated
+read-only connection inside a transaction. DNCP keeps additional bounded record
+and schema checks for its output contract. At runtime, DNCP verifies the installed
+distribution version, VCS source URL, and full commit from its `direct_url.json`,
+then loads `library.py` and `model.py` directly from files owned by that checked
+distribution under a private module namespace. It does not resolve
+`conversation_hub` through `sys.path` or reuse an already-loaded module; absent or
+incompatible distribution files fail explicitly. PEP 610 metadata records
+installation provenance, not byte integrity: it does not prove that installed
+files were not modified after installation. The output's `library_reader` field
+reports the Hub version and recorded commit used.
 Phone-home's bounded repository check identified existing DNCP conversation,
-Fabric and handoff modules. Reuse here extends the existing CLI without invoking
-their collectors, creating another parser/store, or adopting a new dependency.
-No sibling-checkout import or producer runtime invocation is needed.
+Fabric and handoff modules. The CLI does not invoke their collectors, create
+another parser/store, or follow export URIs.
 
 ## Explicit local use
 
@@ -80,6 +108,8 @@ stderr, and emit no partial stdout or imported content:
 
 | Code | Meaning |
 | :--- | :--- |
+| `hub_unavailable` | Optional private Conversation Hub extra is not installed. Install `devnet-control-plane[conversation-hub]` with Python 3.12+ and repository access. No local reader fallback is used. |
+| `hub_incompatible` | Installed extra is not v0.1.1 at the pinned full commit or lacks `read_snapshot`. Reinstall the pinned extra. |
 | `invalid_request` | Malformed expected SHA-256. |
 | `unavailable` | Selected file missing, unreadable, corrupt, or query budget exceeded. No database is created. |
 | `schema_incompatible` | Unmarked, unsupported application/schema/record shape, inconsistent observation identity/provenance, or missing revision/export reference. No migration attempted. |
@@ -93,11 +123,11 @@ and all observations. This provides a single SQLite snapshot; a concurrent WAL
 writer may commit without changing the rows visible to the reader. A busy/locked
 error is reported as `library_busy`, not hidden as an empty collection. Unmarked,
 unknown and future application/schema identifiers are rejected before row use;
-the consumer never initializes or migrates the producer database. SQLite VM
-execution is capped at one million steps. Do not copy the library while it is
-being written; the producer has no live-library backup protocol. DNCP never
-checkpoints, repairs, changes permissions, or writes its library. This is
-snapshot consistency, not a backup or recovery protocol.
+the pinned Hub reader and consumer never initialize or migrate the producer
+database. SQLite VM execution is capped at one million steps. Do not copy the
+library while it is being written; the producer has no live-library backup
+protocol. DNCP never checkpoints, repairs, changes permissions, or writes its
+library. This is snapshot consistency, not a backup or recovery protocol.
 
 ## Validation and remaining work
 
@@ -106,7 +136,11 @@ temporary synthetic libraries matching the producer's DDL. It covers preserved
 branches/unknowns/locators/revisions, deletion and stale snapshots, unavailable,
 incompatible/unmarked input, exact byte/count limits, redacted busy diagnostics,
 one consistent WAL read during a concurrent writer, and blocked collection,
-service construction, network and subprocess calls.
+service construction, network and subprocess calls. The snapshot-reader seam is
+synthetically tested against the published `read_snapshot(Path)` context-manager
+shape. The no-package path is tested to return actionable `hub_unavailable`
+instead of silently falling back. The producer package itself must be installed
+to run this test suite's integration path through the real pinned implementation.
 
 On 2026-11-02, a cross-repository compatibility probe used the actual producer
 modules at `11c362c621727a331a1ecf9ffee40220d8a6d373` plus its authored synthetic
@@ -122,8 +156,26 @@ The earlier adapter probe against the pre-PR-39 producer revision is superseded
 for this contract check; its installed-wheel check remains separate packaging
 evidence, not validation of the new observation timestamp or snapshot API.
 
-Fabric/Conversations/Handoff wiring, an approved longer-term consumer contract,
-real-history authorization and acceptance, cross-source identity reconciliation,
-and source-freshness evidence remain open. No watcher, sync, background scan,
-automatic handoff, transmission, producer change, or complete DNCP-015 acceptance
-is delivered by this slice.
+## Producer interfaces needed for further migration
+
+The published export-library API is not yet a behavior-equivalent replacement
+for DNCP's active local conversation features. Before migrating those surfaces,
+the Hub needs explicit APIs and synthetic compatibility tests for:
+
+| DNCP surface | Minimum producer behavior needed before replacing it |
+| :--- | :--- |
+| Live local scanners | An explicit, user-triggered source adapter contract for supported local roots, with bounded discovery, permission/error diagnostics, stable source identity, source observation times, and no new implicit/background scans. Each source needs its own opt-in and tests proving no paths outside the selection are accessed. |
+| Raw-text import | A user-invoked import API for pasted text that preserves the exact submitted text, caller-provided source label, and provenance/limitations; defines retention/deletion; and does not infer a parser or claim source freshness. |
+| Fabric indexing | A stable read/query API over normalized records plus documented index lifecycle and filtering semantics. It must preserve branch structure, revisions, source evidence, and unknown fields and must not silently collapse records into an alternate DNCP-owned store. |
+| Conversations UI | Paginated/filterable query APIs and explicit import/delete operations sufficient for existing source filters, conversation details, raw-text import, and source/provenance display. Token metrics need defined estimator/version semantics or must remain explicitly unavailable. |
+| Handoff | Explicit user-selected conversation/message retrieval and a serialization/rendering contract that preserves Antigravity transcript ordering, branch/tool events, and provenance, with tests for the existing handoff output. Selection must not trigger collection or transmit automatically. |
+
+These are interface/behavior gates, not a request to add scanning, syncing, or
+handoff features to the Hub without separate approval. Component/prompt release
+tracking belongs in ALM's release gate, not this consumer.
+
+An approved longer-term consumer contract, corrected immutable standalone-hub
+commit and package access, real-history authorization and acceptance, cross-source
+identity reconciliation, and source-freshness evidence remain open. No watcher,
+sync, background scan, automatic handoff, transmission, producer change, or
+complete DNCP-015 acceptance is delivered by this slice.
