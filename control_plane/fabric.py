@@ -15,7 +15,7 @@ from typing import Any
 from . import DEFAULT_DATA_DIR, FACTORY_ROOT
 from .safety import SECRET_RE
 from .conversation_library import ConversationLibraryError, _configured_hub_api
-from .conversation_hub_adapter import local_source_path, read_local_sessions
+from .conversation_hub_adapter import read_local_sessions
 
 ID_RE = re.compile(r"\b(SRC|FND|PAT|DEC|PRM|WF|RUN|SKL|PRJ|ART|BL)-\d{4}\b")
 logger = logging.getLogger(__name__)
@@ -186,7 +186,7 @@ def _harvest_antigravity_sessions(max_sessions: int = 20) -> list[dict[str, Any]
                 "status": f"{len(user_turns)} user turns",
                 "created_date": session["created_date"],
                 "path": f"conversation://{session['full_session_id']}",
-                "abs_path": str(local_source_path(session["source_path"])),
+                "abs_path": session["source_path"],
                 "upstream_refs": mentioned[:6],
                 "downstream_refs": [],
                 "mentioned_ids": mentioned,
@@ -309,7 +309,7 @@ def _harvest_copilot_sessions(max_sessions: int = 25) -> list[dict[str, Any]]:
                 "status": f"{len(snippets)} events",
                 "created_date": session["created_date"],
                 "path": session["source_path"],
-                "abs_path": str(local_source_path(session["source_path"])),
+                "abs_path": session["source_path"],
                 "upstream_refs": mentioned[:6],
                 "downstream_refs": [],
                 "mentioned_ids": mentioned,
