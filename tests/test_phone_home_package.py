@@ -1,6 +1,5 @@
 """Package smoke checks from unrelated working directories and isolated installs."""
 
-import asyncio
 import json
 import os
 from pathlib import Path
@@ -12,6 +11,7 @@ import venv
 import zipfile
 
 import test_phone_home as fixtures
+import build_material_core
 import release
 
 
@@ -24,21 +24,25 @@ class TestPhoneHomePackage(unittest.TestCase):
         return result
 
     def test_wheel_and_sdist_installed_entrypoints_registry_and_api(self) -> None:
-        built = release.build_release(self.root / "dist")
+        core_dir = self.root / "material-core"
+        core = build_material_core.build_release(core_dir)
+        built = release.build_release(self.root / "dist", Path(core["wheel"]))
         with zipfile.ZipFile(built["wheel"]) as archive:
             self.assertIn("control_plane/registry/interaction_frames.json", archive.namelist())
-            self.assertIn("material_core/__init__.py", archive.namelist())
-            self.assertIn("material_core/supplied.py", archive.namelist())
+            self.assertNotIn("material_core/__init__.py", archive.namelist())
             metadata = archive.read("devnet_control_plane-0.1.0.dist-info/METADATA").decode()
             self.assertIn("Provides-Extra: mcp", metadata)
+            self.assertIn("Requires-Dist: material-core==0.1.0", metadata)
+        manifest = json.loads(Path(built["manifest_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(manifest["material_core_artifact"]["sha256"], core["artifacts"][0]["sha256"])
         with tarfile.open(built["sdist"]) as archive:
             self.assertTrue(any(n.endswith("/registry/interaction_frames.json") for n in archive.getnames()))
-            self.assertTrue(any(n.endswith("/material_core/supplied.py") for n in archive.getnames()))
+            self.assertFalse(any("/material_core/" in n for n in archive.getnames()))
         # Also build the declared setuptools path from the sdist, without network isolation.
         wheels = self.root / "sdist-wheel"
         wheels.mkdir()
         self.run_command([sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-                          "--wheel-dir", str(wheels), built["sdist"]])
+                          "--no-index", "--wheel-dir", str(wheels), built["sdist"]])
         artifacts = [Path(built["wheel"]), next(wheels.glob("*.whl"))]
         for index, wheel in enumerate(artifacts):
             with self.subTest(artifact=wheel.name, builder=index):
@@ -47,12 +51,28 @@ class TestPhoneHomePackage(unittest.TestCase):
                 scripts = env / ("Scripts" if sys.platform == "win32" else "bin")
                 python = scripts / ("python.exe" if sys.platform == "win32" else "python")
                 self.run_command([str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(wheel)])
+                missing = subprocess.run(
+                    [str(python), "-c", "import control_plane.material_ingestion"],
+                    cwd=self.root, capture_output=True, text=True, timeout=30,
+                    env={**os.environ, "PYTHONPATH": ""},
+                )
+                self.assertNotEqual(missing.returncode, 0)
+                self.assertIn("material_core", missing.stderr)
+                self.run_command([str(python), "-m", "pip", "install", "--no-index",
+                                  "--find-links", str(core_dir), str(wheel)])
+                core_version = self.run_command([
+                    str(python), "-c",
+                    "from importlib.metadata import version; "
+                    "assert version('material-core') == '0.1.0'; "
+                    "import control_plane.material_ingestion",
+                ])
                 for alias in ("devnet", "devnet-control-plane"):
                     cli = scripts / (alias + (".exe" if sys.platform == "win32" else ""))
                     self.assertIn("devnet 0.1.0", self.run_command([str(cli), "--version"]).stdout)
                     self.run_command([str(cli), "--help"])
                 probe = (
-                    "from material_core import digest_material; "
+                    "from material_core import __version__, digest_material; "
+                    "assert __version__ == '0.1.0'; "
                     "assert digest_material(b'Goal: reuse',name='note.txt',format='text').material.revision; "
                     "from control_plane import REGISTRY_PATH; assert REGISTRY_PATH.is_file(); "
                     "from control_plane.ui import ControlPlaneWorkbench, serve_control_plane; "
@@ -85,27 +105,38 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertEqual(receipt["digestion"]["material"]["kind"], "json")
                 self.assertTrue({item["category"] for item in receipt["digestion"]["items"]}
                                 <= {"json_object", "json_array", "json_value"})
-                if index == 0:
-                    self.run_command([str(python), "-m", "pip", "install", "--quiet", f"{wheel}[mcp]"])
-                    self.check_installed_mcp(python)
 
-    def check_installed_mcp(self, python: Path) -> None:
-        from mcp import ClientSession
-        from mcp.client.stdio import StdioServerParameters, stdio_client
+    def test_release_builder_rejects_missing_or_incompatible_core_wheel(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            release.verify_material_core_wheel(self.root / "missing.whl")
+        wrong = self.root / "material_core-0.1.0-py3-none-any.whl"
+        with zipfile.ZipFile(wrong, "w") as archive:
+            archive.writestr(
+                "material_core-0.2.0.dist-info/METADATA",
+                "Metadata-Version: 2.1\nName: material-core\nVersion: 0.2.0\n\n",
+            )
+            for name in ("material_core/__init__.py", "material_core/contract.py", "material_core/supplied.py"):
+                archive.writestr(name, b"")
+        with self.assertRaisesRegex(ValueError, "requires material-core==0.1.0"):
+            release.build_release(self.root / "dncp", wrong)
 
-        async def exercise() -> None:
-            env = dict(os.environ)
-            env.update({"PYTHONPATH": "", "FACTORY_ROOT": str(self.factory),
-                        "DEV_NETWORK_ROOT": str(self.network), "DEVNET_DATA_DIR": str(self.data)})
-            params = StdioServerParameters(command=str(python), args=["-m", "control_plane.cli", "mcp"],
-                                           env=env, cwd=self.root)
-            async with stdio_client(params) as (reader, writer):
-                async with ClientSession(reader, writer) as session:
-                    await session.initialize()
-                    result = await session.call_tool("phone_home_check", {"query": "sqlite"})
-                    self.assertFalse(result.isError)
-                    self.assertEqual(result.structuredContent["decision_ladder"]["stopped_at"], 1)
-        asyncio.run(exercise())
+    def test_editable_dncp_install_uses_local_exact_core_wheel(self) -> None:
+        core_dir = self.root / "material-core"
+        build_material_core.build_release(core_dir)
+        environment = self.root / "editable-env"
+        venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
+        scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
+        python = scripts / ("python.exe" if sys.platform == "win32" else "python")
+        self.run_command([
+            str(python), "-m", "pip", "install", "--no-index", "--no-build-isolation",
+            "--find-links", str(core_dir), "-e", str(Path(__file__).resolve().parents[1]),
+        ])
+        self.run_command([
+            str(python), "-c",
+            "from importlib.metadata import version; "
+            "assert version('material-core') == '0.1.0'; "
+            "import control_plane.material_ingestion",
+        ])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """Reusable, deterministic material processing with no DNCP orchestration."""
 
+__version__ = "0.1.0"
+
 from .contract import DISPOSITIONS, NOTICE, REVIEW_ACTIONS, Digestion, Digester, MaterialReference
 from .supplied import (
     EXTENSIONS,
@@ -21,6 +23,7 @@ from .supplied import (
 )
 
 __all__ = [
+    "__version__",
     "DISPOSITIONS",
     "EXTENSIONS",
     "FORMATS",

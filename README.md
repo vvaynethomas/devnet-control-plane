@@ -55,9 +55,13 @@ one canonical incubator root, network root, and shared writable runtime director
 for all clients. DNCP never writes knowledge records to that incubator.
 
 ### 1. Installation
-The declared package requires Python >=3.10 and no mandatory external runtime dependencies. Editable/source builds use `setuptools>=61.0` and `wheel`; the standard-library release builder is a separate path. Intended installation:
+The declared package requires Python >=3.10 and the exact local dependency
+`material-core==0.1.0`; editable/source builds use `setuptools>=61.0` and
+`wheel`. Build the core artifact first as documented in
+[the package handover](docs/material-core-package.md), then install/build DNCP
+with that local wheelhouse. The standard-library release builder is a separate path.
 ```bash
-pip install -e .
+pip install --no-index --no-build-isolation --find-links dist/material-core -e .
 ```
 
 Verify CLI installation:
@@ -439,14 +443,17 @@ runtime import from a sibling checkout. No chat code is moved/refactored here.
 
 ## Packaging and Release
 
-`release.py` uses only the Python standard library to construct local artifacts declared as 0.1.0 under **DEC-0015**:
+`release.py` uses only the Python standard library to construct local artifacts
+declared as 0.1.0 under **DEC-0015**. It requires an explicitly built
+`material-core==0.1.0` wheel and validates its identity; it never embeds the core:
 ```bash
-python release.py
+python build_material_core.py --output-dir dist/material-core
+python release.py --material-core-wheel dist/material-core/material_core-0.1.0-py3-none-any.whl --output-dir dist/devnet
+pip install --no-index --find-links dist/material-core dist/devnet/devnet_control_plane-0.1.0-py3-none-any.whl
 ```
-Outputs:
-* Wheel: `dist/devnet_control_plane-0.1.0-py3-none-any.whl`
-* Source: `dist/devnet_control_plane-0.1.0.tar.gz`
-* Manifest: `dist/RELEASE_MANIFEST.json` with cryptographic SHA-256 digests.
+The core and DNCP each emit their own wheel/source archive and
+`RELEASE_MANIFEST.json` with artifact/source SHA-256 identities. The DNCP
+manifest pins the exact core wheel by filename and digest.
 
 **Remaining release gates:** CLI and registry installation have portable smoke coverage for both the standard-library wheel and the setuptools wheel built from its sdist. Archive timestamps still prevent assuming byte-for-byte reproducibility, and manifest Git provenance is resolved outside this repository. No tags or GitHub Releases were listed during the 2026-11-01 audit; publication elsewhere is unknown. These checks do not establish publication or operator acceptance.
 

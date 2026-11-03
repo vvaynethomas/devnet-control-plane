@@ -29,7 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = []
+dependencies = ["material-core==0.1.0"]
 
 [project.optional-dependencies]
 mcp = [
@@ -45,7 +45,7 @@ devnet-control-plane = "control_plane.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["control_plane*", "material_core*"]
+include = ["control_plane*"]
 
 [tool.setuptools.package-data]
 control_plane = ["registry/*.json"]

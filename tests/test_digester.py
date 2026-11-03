@@ -234,13 +234,16 @@ class TestRepositoryDigester(unittest.TestCase):
         self.assertFalse((self.data / "phone_home.sqlite").exists())
 
     def test_installed_wheel_cli_without_source_checkout_or_dependencies(self) -> None:
+        import build_material_core
         import release
-        wheel = release.build_release(self.root / "dist")["wheel"]
+        core = build_material_core.build_release(self.root / "material-core")
+        wheel = release.build_release(self.root / "dist", Path(core["wheel"]))["wheel"]
         environment = self.root / "installed"
         venv.EnvBuilder(with_pip=True).create(environment)
         scripts = environment / ("Scripts" if sys.platform == "win32" else "bin")
         python = scripts / ("python.exe" if sys.platform == "win32" else "python")
-        subprocess.run([str(python), "-m", "pip", "install", "--no-deps", "--no-index", wheel],
+        subprocess.run([str(python), "-m", "pip", "install", "--no-index", "--find-links",
+                        str(self.root / "material-core"), wheel],
                        cwd=self.root, check=True, capture_output=True, timeout=60)
         args = [str(python), "-m", "control_plane.cli", "--data-dir", str(self.data),
                 "--factory-root", str(self.root / "missing"), "digest"]

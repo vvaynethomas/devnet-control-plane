@@ -1,13 +1,14 @@
-"""Deterministic, Zero-Dependency System Node Release Builder (ALM-006 / DEC-0015 / ART-0008).
+"""Deterministic System Node Release Builder (ALM-006 / DEC-0015 / ART-0008).
 
-Builds PEP 427 compliant pure-Python wheels (*.whl), PEP 517 source archives (*.tar.gz),
-and cryptographic RELEASE_MANIFEST.json files using exclusively Python standard library.
+Builds PEP 427 pure-Python wheels, source archives, and SHA-256 manifests using
+the standard library, against an explicitly supplied local material-core wheel.
 """
 
 from __future__ import annotations
 
 import base64
 from datetime import datetime, timezone
+from email.parser import Parser
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +21,8 @@ PROJECT_DIR = Path(__file__).resolve().parent
 PACKAGE_NAME = "devnet-control-plane"
 DISTRIBUTION_NAME = "devnet_control_plane"
 VERSION = "0.1.0"
+MATERIAL_CORE_NAME = "material-core"
+MATERIAL_CORE_VERSION = "0.1.0"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -48,17 +51,42 @@ def get_git_commit(repo_dir: Path) -> str:
         return "unversioned"
 
 
-def collect_source_files(pkg_dir: Path, additional_packages: tuple[Path, ...] = ()) -> list[tuple[str, bytes]]:
-    """Collect source files from the system-node packages."""
+def collect_source_files(pkg_dir: Path) -> list[tuple[str, bytes]]:
+    """Collect source files from the system-node package."""
     files = []
-    for package_dir in (pkg_dir, *additional_packages):
-        for p in sorted(package_dir.rglob("*")):
-            if p.is_file() and not p.name.endswith((".pyc", ".pyo")) and "__pycache__" not in p.parts:
-                rel = p.relative_to(pkg_dir.parent).as_posix()
-                files.append((rel, p.read_bytes()))
+    for p in sorted(pkg_dir.rglob("*")):
+        if p.is_file() and not p.name.endswith((".pyc", ".pyo")) and "__pycache__" not in p.parts:
+            rel = p.relative_to(pkg_dir.parent).as_posix()
+            files.append((rel, p.read_bytes()))
     registry = pkg_dir.parent / "registry" / "interaction_frames.json"
     files.append(("control_plane/registry/interaction_frames.json", registry.read_bytes()))
     return files
+
+
+def verify_material_core_wheel(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        raise FileNotFoundError(f"required local {MATERIAL_CORE_NAME} wheel not found: {path}")
+    expected_filename = "material_core-0.1.0-py3-none-any.whl"
+    if path.name != expected_filename:
+        raise ValueError(f"expected pinned core wheel filename {expected_filename}")
+    with zipfile.ZipFile(path) as archive:
+        names = archive.namelist()
+        metadata_paths = [name for name in names if name.endswith(".dist-info/METADATA")]
+        if len(metadata_paths) != 1:
+            raise ValueError("material-core wheel must contain exactly one METADATA file")
+        metadata = Parser().parsestr(archive.read(metadata_paths[0]).decode("utf-8"))
+        if not all(name in names for name in (
+            "material_core/__init__.py", "material_core/contract.py", "material_core/supplied.py"
+        )):
+            raise ValueError("material-core wheel is missing required package modules")
+    if metadata["Name"] != MATERIAL_CORE_NAME or metadata["Version"] != MATERIAL_CORE_VERSION:
+        raise ValueError(
+            f"DNCP requires {MATERIAL_CORE_NAME}=={MATERIAL_CORE_VERSION}; "
+            f"got {metadata['Name']}=={metadata['Version']}"
+        )
+    data = path.read_bytes()
+    return {"filename": path.name, "version": metadata["Version"], "sha256": compute_sha256(data),
+            "size_bytes": len(data)}
 
 
 def build_wheel(dist_dir: Path, source_files: list[tuple[str, bytes]]) -> Path:
@@ -74,6 +102,7 @@ Summary: Autonomous Development Network Control Plane and Interaction Frame Lab
 Author: Development Network Operator
 License: MIT
 Requires-Python: >=3.10
+Requires-Dist: material-core=={MATERIAL_CORE_VERSION}
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -159,13 +188,14 @@ def io_bytes(data: bytes):
     return io.BytesIO(data)
 
 
-def build_release(output_dir: Path | None = None) -> dict[str, object]:
-    """Build immutable package releases, compute cryptographic digests, and write manifest."""
-    dist_dir = output_dir or (PROJECT_DIR / "dist")
+def build_release(output_dir: Path, material_core_wheel: Path) -> dict[str, object]:
+    """Build DNCP against an explicit, verified local material-core wheel."""
+    core_artifact = verify_material_core_wheel(material_core_wheel)
+    dist_dir = output_dir
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     pkg_dir = PROJECT_DIR / "control_plane"
-    sources = collect_source_files(pkg_dir, (PROJECT_DIR / "material_core",))
+    sources = collect_source_files(pkg_dir)
 
     source_digests = {}
     for arcname, data in sources:
@@ -204,16 +234,17 @@ def build_release(output_dir: Path | None = None) -> dict[str, object]:
         "deliverable_id": "ART-0008",
         "runtime_requirements": {
             "python": ">=3.10",
-            "external_dependencies": [],
+            "dependencies": [f"{MATERIAL_CORE_NAME}=={MATERIAL_CORE_VERSION}"],
             "optional_extras": ["openai>=1.0.0", "mcp>=1.30,<2"],
         },
+        "material_core_artifact": core_artifact,
         "artifacts": artifacts,
         "source_inventory": {
             "file_count": len(sources),
             "digests": source_digests,
         },
         "consumer_pin": {
-            "pip_command": f"pip install dist/{wheel_path.name}",
+            "pip_command": f"pip install --no-index --find-links <core-wheelhouse> dist/{wheel_path.name}",
             "requirements_entry": f"{PACKAGE_NAME}=={VERSION}",
             "sha256_pin": f"{PACKAGE_NAME}=={VERSION} --hash=sha256:{compute_sha256(wheel_bytes)}",
         },
@@ -227,9 +258,15 @@ def build_release(output_dir: Path | None = None) -> dict[str, object]:
         "artifacts": artifacts,
         "wheel": str(wheel_path),
         "sdist": str(sdist_path),
+        "material_core": core_artifact,
     }
 
 
 if __name__ == "__main__":
-    out = build_release()
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--material-core-wheel", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_DIR / "dist")
+    args = parser.parse_args()
+    out = build_release(args.output_dir, args.material_core_wheel)
     print(json.dumps(out, indent=2))

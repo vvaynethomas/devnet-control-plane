@@ -303,6 +303,13 @@ class TestMaterialIngestion(unittest.TestCase):
                     self.service.submit({**self.payload(), **change})
         self.assertEqual(self.service.list()["total"], 0)
 
+    def test_material_processing_errors_keep_dncp_http_status_mapping(self) -> None:
+        with self.assertRaises(MaterialError) as raised:
+            self.service.submit({"kind": "material", "material": {
+                "name": "unsupported.pdf", "format": "pdf", "text": "not supported",
+            }})
+        self.assertEqual(getattr(raised.exception, "status", None), 400)
+
     def test_zip_mixed_formats_provenance_no_extraction_or_nested_processing(self) -> None:
         raw = self.archive([("notes.md", b"# Topic\nGoal: safe"),
                             ("table.csv", b"name,direction\none,reuse"),
