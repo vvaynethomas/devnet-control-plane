@@ -177,8 +177,11 @@ with exact commit `11eb07caf7ce45eb35111c9ef017ad9c21de0ad2` installed into a
 temporary target directory. The downloaded release wheel hash matched the
 published digest; the integration test exercises the VCS-commit install so its
 PEP 610 metadata matches the pin. No real
-conversation directories or histories were read. Validation ran on Python 3.14;
-Python 3.10 and 3.11 were not available, so those versions remain unverified.
+conversation directories or histories were read. Hub-extra runtime validation
+ran on Python 3.14. Separately, the DNCP base wheel's imports, CLI, metadata,
+and explicit missing-capability errors were smoke-tested on PSF-signed Python
+3.10.11 and 3.11.9 embeddable runtimes; those were not pip-install or Hub-extra
+tests.
 
 On 2026-11-02, a cross-repository compatibility probe used the actual producer
 modules at `11c362c621727a331a1ecf9ffee40220d8a6d373` plus its authored synthetic

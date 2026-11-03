@@ -47,6 +47,12 @@ class TestPhoneHomePackage(unittest.TestCase):
                 self.assertIn('extra == "conversation-hub"', hub_requirement)
                 self.assertIn('python_version >= "3.12"', hub_requirement)
                 hub_marker = Requirement(hub_requirement.removeprefix("Requires-Dist: ")).marker
+                utility_requirement = next(line for line in metadata.splitlines()
+                                           if line.startswith("Requires-Dist: utility-chest-credential-patterns"))
+                self.assertIn(release.UTILITY_COMMIT, utility_requirement)
+                self.assertIn('extra == "credential-patterns"', utility_requirement)
+                self.assertIn("subdirectory=utilities/credential-patterns", utility_requirement)
+                self.assertIn("Provides-Extra: credential-patterns", metadata)
                 for version in ("3.10", "3.11"):
                     self.assertFalse(hub_marker.evaluate({"python_version": version, "extra": "conversation-hub"}))
                 self.assertTrue(hub_marker.evaluate({"python_version": "3.12", "extra": "conversation-hub"}))
@@ -54,8 +60,11 @@ class TestPhoneHomePackage(unittest.TestCase):
             self.run_command([str(python), "-m", "pip", "check"])
             self.run_command([str(python), "-I", "-c",
                               "import importlib.util; assert importlib.util.find_spec('material_core') is None; "
+                              "assert importlib.util.find_spec('credential_patterns') is None; "
                               "assert importlib.util.find_spec('conversation_hub') is None; "
                               "from control_plane.fabric import FabricIndex; "
+                              "from control_plane.safety import SECRET_RE; "
+                              "assert SECRET_RE.sub('[REDACTED_SECRET]', 'token ghp_'+'a'*36).endswith('[REDACTED_SECRET]'); "
                               "from control_plane.mcp_server import tool_contracts; assert tool_contracts(); "
                               "from control_plane.ui import ControlPlaneWorkbench; "
                               "from control_plane.phone_home import validate_submission; "
@@ -236,8 +245,13 @@ class TestPhoneHomePackage(unittest.TestCase):
         ])
         self.run_command([
             str(python), "-c",
-            "from importlib.metadata import version; "
+            "from importlib.metadata import version,distribution; from pathlib import Path; import sys; "
             f"assert version('material-core') == {release.MATERIAL_CORE_VERSION!r}; "
+            "from control_plane.safety import SECRET_RE; "
+            "module=sys.modules['_dncp_pinned_credential_patterns']; "
+            "assert Path(module.__file__).resolve()==Path(distribution('utility-chest-credential-patterns').locate_file('credential_patterns/__init__.py')).resolve(); "
+            "assert SECRET_RE.pattern==module.SECRET_RE.pattern and SECRET_RE.flags==module.SECRET_RE.flags; "
+            "assert SECRET_RE.sub('[REDACTED_SECRET]','ghp_'+'a'*36)=='[REDACTED_SECRET]'; "
             "import control_plane.material_ingestion",
         ])
 

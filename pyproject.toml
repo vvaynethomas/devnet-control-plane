@@ -33,6 +33,7 @@ dependencies = []
 
 [project.optional-dependencies]
 material = ["material-core @ git+https://github.com/vvaynethomas/material-core@31d0661fae0a89f80290d8e645a6872431cd6dd6"]
+credential-patterns = ["utility-chest-credential-patterns @ git+https://github.com/vvaynethomas/utility-chest.git@4e2a06146944b438f10525ef45c44cc101b417b5#subdirectory=utilities/credential-patterns"]
 mcp = [
     "mcp>=1.30,<2",
 ]

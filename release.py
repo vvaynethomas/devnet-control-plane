@@ -137,6 +137,8 @@ Provides-Extra: material
 Requires-Dist: {MATERIAL_CORE_REQUIREMENT} ; extra == "material"
 Provides-Extra: conversation-hub
 Requires-Dist: {HUB_REQUIREMENT} ; python_version >= "3.12" and extra == "conversation-hub"
+Provides-Extra: credential-patterns
+Requires-Dist: {UTILITY_REQUIREMENT} ; extra == "credential-patterns"
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -276,7 +278,7 @@ def build_release(output_dir: Path, material_core_wheel: Path | None = None,
             "python": ">=3.10",
             "dependencies": [],
             "optional_extras": [MATERIAL_CORE_REQUIREMENT, HUB_REQUIREMENT + ' ; python_version >= "3.12"',
-                                "openai>=1.0.0", "mcp>=1.30,<2"],
+                                UTILITY_REQUIREMENT, "openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "material_core_artifact": core_artifact,
         "material_core_source_commit": MATERIAL_CORE_COMMIT,

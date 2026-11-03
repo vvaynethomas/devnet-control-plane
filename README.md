@@ -61,7 +61,10 @@ private credentials. Editable/source builds use locally available
 require the optional `material` extra, which pins private `material-core`
 v0.1.1rc2 to commit `31d0661fae0a89f80290d8e645a6872431cd6dd6` and its
 Utility Chest credential-patterns dependency to commit
-`4e2a06146944b438f10525ef45c44cc101b417b5`.
+`4e2a06146944b438f10525ef45c44cc101b417b5`. Fabric redaction can also use
+that shared utility independently through the optional `credential-patterns`
+extra pinned to the same immutable Utility Chest commit; without it, the public
+base retains its matching local redaction policy.
 See [the package handover](docs/material-core-package.md) for authenticated
 full-feature installation and offline artifact workflows.
 ```bash

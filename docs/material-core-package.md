@@ -17,7 +17,24 @@ storage, discovery, or repository-scanning dependency. DNCP no longer includes
 the `material_core` sources; it retains its payload adapter and checks core
 version 0.1.1rc2 and recorded source provenance explicitly. The public base package has no runtime dependencies
 and needs no private credentials. Fabric credential filtering and MCP schema
-description are DNCP-owned and independent of the processor.
+description are DNCP-owned and independent of Material Core. Fabric can use
+the separately versioned Utility Chest primitive through the optional
+`credential-patterns` extra; the public base retains the behavior-matched local
+fallback.
+
+The `credential-patterns` extra pins Utility Chest's
+`utility-chest-credential-patterns` package directly to commit
+`4e2a06146944b438f10525ef45c44cc101b417b5` and its credential-patterns
+subdirectory. When present, DNCP checks the installed version, PEP 610 source
+commit/subdirectory, distribution-owned module path and exact reviewed regex
+pattern/flags before using it. When absent, the equivalent local expression
+continues to provide redaction. This limited pattern set is not comprehensive
+secret detection or a security guarantee. For an authenticated Git install,
+PEP 610 is source provenance, not post-install byte-integrity verification.
+The offline Material installer instead binds the Utility module to the exact
+wheel bytes checked against the independent SHA-256 pin and checks the installed
+module hash against that verified artifact; its local evidence is not a signed
+publisher attestation.
 
 ## Public base installation
 

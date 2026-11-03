@@ -15,6 +15,39 @@ from control_plane.material_pins import HUB_VERSION, HUB_COMMIT
 @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
                      "Set DNCP_PRIVATE_INTEGRATION=1 for private Git dependency installation matrix")
 class TestConsumerExtras(unittest.TestCase):
+    def test_shared_credential_patterns_extra_uses_pinned_utility(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            wheel = Path(release.build_release(root / "custom")["wheel"])
+            environment = root / "credential-patterns-env"
+            venv.EnvBuilder(with_pip=True).create(environment)
+            python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+            result = subprocess.run(
+                [str(python), "-m", "pip", "install", f"{wheel}[credential-patterns]"],
+                cwd=root, capture_output=True, text=True, timeout=240,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            script = (
+                "import json,sys; from pathlib import Path; from importlib.metadata import distribution; "
+                "from control_plane.material_pins import UTILITY_COMMIT,UTILITY_VERSION; "
+                "from control_plane.safety import SECRET_RE; "
+                "installed=distribution('utility-chest-credential-patterns'); "
+                "module=sys.modules['_dncp_pinned_credential_patterns']; "
+                "direct=json.loads(installed.read_text('direct_url.json')); "
+                "assert installed.version==UTILITY_VERSION; "
+                "assert direct['vcs_info']['commit_id']==UTILITY_COMMIT; "
+                "assert direct['subdirectory']=='utilities/credential-patterns'; "
+                "assert Path(module.__file__).resolve()==Path(installed.locate_file('credential_patterns/__init__.py')).resolve(); "
+                "assert SECRET_RE.pattern==module.SECRET_RE.pattern and SECRET_RE.flags==module.SECRET_RE.flags; "
+                "secret='ghp_'+'a'*36; "
+                "assert SECRET_RE.sub('[REDACTED_SECRET]',secret)=='[REDACTED_SECRET]'"
+            )
+            checked = subprocess.run(
+                [str(python), "-I", "-c", script],
+                cwd=root, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
     def test_each_extra_and_both_with_standard_and_custom_wheels(self):
         tests = Path(__file__).resolve().parent
         with tempfile.TemporaryDirectory() as temporary:
