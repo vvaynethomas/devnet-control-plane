@@ -5,10 +5,12 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
+import http.client
 import json
 import os
 import sqlite3
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -309,12 +311,19 @@ class InteractionFrameEngine:
             f"-> *Frame Digest:* `{compiled['manifest_digest']}`"
         )
 
-    def _try_live_llm(self, system_prompt: str, user_prompt: str) -> tuple[str | None, str]:
-        """Attempt live OpenAI-compatible completion if OPENAI_API_KEY is set in environment; otherwise return None."""
+    def _try_live_llm(self, system_prompt: str, user_prompt: str) -> tuple[str | None, dict[str, Any]]:
+        """Attempt a completion and return explicit provenance, including preview fallback failures."""
+        provenance: dict[str, Any] = {
+            "execution_mode": "deterministic-preview",
+            "live_call_status": "not-requested",
+            "requested_model": None,
+            "live_call_error": None,
+        }
         api_key = os.environ.get("OPENAI_API_KEY", "").strip()
         if not api_key:
-            return None, "deterministic-preview (set OPENAI_API_KEY for live model calls)"
+            return None, provenance
         model = os.environ.get("INTERACTION_LAB_MODEL", "gpt-4o-mini")
+        provenance["requested_model"] = model
         url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
         payload = json.dumps(
             {
@@ -326,22 +335,70 @@ class InteractionFrameEngine:
                 "temperature": 0.3,
             }
         ).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            method="POST",
-        )
         try:
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
             with urllib.request.urlopen(req, timeout=20.0) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 content = data["choices"][0]["message"]["content"]
-                return content, f"live-llm:{model}"
-        except Exception as exc:
-            return None, f"deterministic-preview (live call failed: {exc})"
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("Completion content must be nonempty text")
+                provenance["execution_mode"] = f"live-llm:{model}"
+                provenance["live_call_status"] = "succeeded"
+                return content, provenance
+        except (OSError, http.client.HTTPException, ValueError, KeyError, IndexError, TypeError) as exc:
+            provenance["live_call_status"] = "failed"
+            # Provider exception text can contain credentials, URLs or task data.
+            provenance["live_call_error"] = {
+                "type": type(exc).__name__,
+                "message": "Live completion failed; deterministic preview used.",
+            }
+            if isinstance(exc, urllib.error.HTTPError):
+                provenance["live_call_error"]["http_status"] = exc.code
+                exc.close()
+            return None, provenance
+
+    @staticmethod
+    def _aggregate_execution_mode(variants: list[dict[str, Any]]) -> str:
+        modes = {v.get("execution_mode", "unknown") for v in variants}
+        if not modes or "unknown" in modes:
+            mode = "unknown"
+        elif len(modes) == 1:
+            mode = next(iter(modes))
+        else:
+            mode = "mixed"
+        if any(v.get("live_call_status") == "failed" for v in variants):
+            mode += " (live call failed)"
+        return mode
+
+    @classmethod
+    def _decode_run(cls, row: sqlite3.Row) -> dict[str, Any]:
+        variants = json.loads(row["variants_json"])
+        for variant in variants:
+            # The old run label only described the final frame, not every variant.
+            variant.setdefault("execution_mode", "unknown")
+            variant.setdefault("live_call_status", "unknown")
+            if variant["live_call_status"] == "unknown":
+                variant["execution_mode"] = "unknown"
+            variant.setdefault("requested_model", None)
+            variant.setdefault("live_call_error", None)
+        return {
+            "run_id": row["run_id"],
+            "created_at": row["created_at"],
+            "task_prompt": row["task_prompt"],
+            "desired_behavior": row["desired_behavior"],
+            "execution_mode": cls._aggregate_execution_mode(variants),
+            "baseline_frame_id": row["baseline_frame_id"],
+            "variants": variants,
+            "notes": row["notes"],
+        }
 
     def run_side_by_side_evaluation(
         self,
@@ -357,14 +414,12 @@ class InteractionFrameEngine:
             raise ValueError("Select at least one InteractionFrame to evaluate.")
 
         variants: list[dict[str, Any]] = []
-        execution_mode = "deterministic-preview"
         for fid in frame_ids:
             t0 = time.perf_counter()
             compiled = self.compile_frame(task_prompt, fid)
-            live_out, mode_label = self._try_live_llm(
+            live_out, provenance = self._try_live_llm(
                 compiled["system_prompt"], compiled["user_prompt"]
             )
-            execution_mode = mode_label
             output_text = (
                 live_out if live_out is not None else self._synthesize_framed_preview(task_prompt, compiled)
             )
@@ -372,6 +427,7 @@ class InteractionFrameEngine:
             out_tokens = max(1, len(output_text) // 4)
             variants.append(
                 {
+                    **provenance,
                     "frame_id": compiled["frame_id"],
                     "frame_title": compiled["frame_title"],
                     "manifest_digest": compiled["manifest_digest"],
@@ -399,6 +455,7 @@ class InteractionFrameEngine:
                 }
             )
 
+        execution_mode = self._aggregate_execution_mode(variants)
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         run_id = "EVAL-" + _canonical_digest({"ts": now_iso, "task": task_prompt, "frames": frame_ids})[:10].upper()
 
@@ -483,32 +540,11 @@ class InteractionFrameEngine:
             ).fetchone()
             if row is None:
                 return None
-            return {
-                "run_id": row["run_id"],
-                "created_at": row["created_at"],
-                "task_prompt": row["task_prompt"],
-                "desired_behavior": row["desired_behavior"],
-                "execution_mode": row["execution_mode"],
-                "baseline_frame_id": row["baseline_frame_id"],
-                "variants": json.loads(row["variants_json"]),
-                "notes": row["notes"],
-            }
+            return self._decode_run(row)
 
     def list_runs(self, limit: int = 25) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM evaluation_runs ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
-            return [
-                {
-                    "run_id": r["run_id"],
-                    "created_at": r["created_at"],
-                    "task_prompt": r["task_prompt"],
-                    "desired_behavior": r["desired_behavior"],
-                    "execution_mode": r["execution_mode"],
-                    "baseline_frame_id": r["baseline_frame_id"],
-                    "variants": json.loads(r["variants_json"]),
-                    "notes": r["notes"],
-                }
-                for r in rows
-            ]
+            return [self._decode_run(row) for row in rows]
