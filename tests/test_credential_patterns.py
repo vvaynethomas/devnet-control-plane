@@ -1,7 +1,9 @@
 """Optional shared credential-pattern adoption and dependency-free fallback."""
 
 import json
+import os
 from pathlib import Path
+import py_compile
 import re
 import sys
 import tempfile
@@ -114,6 +116,47 @@ class TestCredentialPatterns(unittest.TestCase):
             with patch("control_plane.safety.distribution", return_value=PinnedDistribution()):
                 with self.assertRaisesRegex(CredentialPatternsError, "behavior differs"):
                     _shared_secret_re()
+
+    def test_transitive_utility_source_bypasses_cached_bytecode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "credential_patterns"
+            package.mkdir()
+            (package / "__init__.py").write_text("from .rules import SECRET_RE\n", encoding="utf-8")
+            rules = package / "rules.py"
+            source = (
+                "import re\n"
+                f"SECRET_RE = re.compile({_LOCAL_SECRET_RE.pattern!r}, flags={_LOCAL_SECRET_RE.flags})\n"
+            )
+            poison = "import re\nSECRET_RE = re.compile('cached-bytecode-shadow')\n".ljust(len(source))
+            rules.write_text(poison, encoding="utf-8")
+            cached = Path(py_compile.compile(str(rules), doraise=True))
+            timestamp = rules.stat().st_mtime
+            rules.write_text(source, encoding="utf-8")
+            os.utime(rules, (timestamp, timestamp))
+            self.assertTrue(cached.is_file())
+            direct = {
+                "url": f"{UTILITY_URL}.git",
+                "vcs_info": {"vcs": "git", "commit_id": UTILITY_COMMIT},
+                "subdirectory": UTILITY_SUBDIRECTORY,
+            }
+
+            class PinnedDistribution:
+                version = UTILITY_VERSION
+                files = [Path("credential_patterns/__init__.py"), Path("credential_patterns/rules.py")]
+
+                @staticmethod
+                def read_text(name: str) -> str:
+                    return json.dumps(direct) if name == "direct_url.json" else "{}"
+
+                @staticmethod
+                def locate_file(name: str) -> Path:
+                    return root / name
+
+            with patch("control_plane.safety.distribution", return_value=PinnedDistribution()):
+                loaded = _shared_secret_re()
+            self.assertEqual(loaded.pattern, _LOCAL_SECRET_RE.pattern)
+            self.assertEqual(loaded.flags, _LOCAL_SECRET_RE.flags)
 
 
 if __name__ == "__main__":

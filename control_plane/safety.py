@@ -2,12 +2,15 @@
 
 from importlib.metadata import PackageNotFoundError, distribution
 import hashlib
-import importlib.util
 import json
 import re
 from pathlib import Path
-import sys
 
+from .verified_package import (
+    capture_distribution_sources,
+    load_package_from_snapshot,
+    unload_package_snapshot,
+)
 from .material_pins import (
     UTILITY_COMMIT,
     UTILITY_SUBDIRECTORY,
@@ -65,10 +68,10 @@ def _matches_pin(installed) -> bool:
         or relative not in hashes
     ):
         return False
-    installed_file = Path(installed.locate_file(relative))
     try:
+        installed_file = Path(installed.locate_file(relative))
         return hashlib.sha256(installed_file.read_bytes()).hexdigest() == hashes[relative]
-    except OSError:
+    except (OSError, TypeError):
         return False
 
 
@@ -84,39 +87,33 @@ def _shared_secret_re() -> re.Pattern[str]:
         )
 
     relative = "credential_patterns/__init__.py"
-    owned = {str(item).replace("\\", "/") for item in (installed.files or ())}
-    root = Path(installed.locate_file("")).resolve()
-    module_path = Path(installed.locate_file(relative)).resolve()
     try:
-        module_path.relative_to(root)
-    except ValueError:
-        raise CredentialPatternsError("Pinned credential-patterns module is outside its distribution.") from None
-    if relative not in owned or not module_path.is_file():
-        raise CredentialPatternsError("Pinned credential-patterns module is missing from its distribution.")
-
-    namespace = "_dncp_pinned_credential_patterns"
-    for name in tuple(sys.modules):
-        if name == namespace or name.startswith(namespace + "."):
-            del sys.modules[name]
-    spec = importlib.util.spec_from_file_location(namespace, module_path)
-    if spec is None or spec.loader is None:
-        raise CredentialPatternsError("Pinned credential-patterns module cannot be loaded.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[namespace] = module
-    try:
-        spec.loader.exec_module(module)
-    except (ImportError, OSError, SyntaxError, ValueError) as exc:
-        sys.modules.pop(namespace, None)
-        raise CredentialPatternsError("Pinned credential-patterns module cannot be loaded.") from exc
+        evidence = json.loads(installed.read_text("dncp_material_provenance.json") or "{}")
+        expected_hashes = (evidence.get("source_sha256")
+                           if not _has_vcs_provenance(installed) else None)
+        sources = capture_distribution_sources(installed, "credential_patterns", {relative}, expected_hashes)
+        module = load_package_from_snapshot(
+            "credential_patterns", "_dncp_pinned_credential_patterns", sources,
+        )
+    except (ImportError, OSError, SyntaxError, ValueError, TypeError, KeyError) as exc:
+        raise CredentialPatternsError("Pinned credential-patterns module cannot be loaded from verified source.") from exc
     pattern = getattr(module, "SECRET_RE", None)
     if (
         not isinstance(pattern, re.Pattern)
         or pattern.pattern != _LOCAL_SECRET_RE.pattern
         or pattern.flags != _LOCAL_SECRET_RE.flags
     ):
-        sys.modules.pop(namespace, None)
+        unload_package_snapshot("_dncp_pinned_credential_patterns")
         raise CredentialPatternsError("Pinned credential-patterns behavior differs from DNCP's reviewed policy.")
     return pattern
+
+
+def _has_vcs_provenance(installed) -> bool:
+    try:
+        direct = json.loads(installed.read_text("direct_url.json") or "{}")
+    except (json.JSONDecodeError, OSError):
+        return False
+    return isinstance(direct, dict) and isinstance(direct.get("vcs_info"), dict)
 
 
 SECRET_RE = _shared_secret_re()

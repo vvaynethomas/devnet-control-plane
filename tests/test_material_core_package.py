@@ -2,6 +2,10 @@
 
 import json
 import os
+import base64
+import csv
+import hashlib
+import io
 from pathlib import Path
 import subprocess
 import sys
@@ -47,39 +51,87 @@ class TestMaterialCorePackage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "independently pinned producer release"):
             release.verify_utility_bytes(data, filename)
 
-    def test_installer_consumes_verified_snapshot_not_mutated_input(self):
-        import install_material_core
-        from types import SimpleNamespace
+    def test_offline_installer_ignores_shadow_pip_metadata_and_ambient_config(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            wheel = root / f"material_core-{release.MATERIAL_CORE_VERSION}-py3-none-any.whl"
-            wheel.write_bytes(b"verified byte snapshot")
-            names = [f"material_core/{name}.py" for name in ("__init__", "contract", "safety", "supplied")]
-            for name in names:
-                path = root / name
-                path.parent.mkdir(exist_ok=True)
-                path.write_bytes(b"")
-            metadata = root / f"material_core-{release.MATERIAL_CORE_VERSION}.dist-info"
-            metadata.mkdir()
-            installed = SimpleNamespace(files=[f"material_core-{release.MATERIAL_CORE_VERSION}.dist-info/METADATA"],
-                                        locate_file=lambda name: root / name,
-                                        read_text=lambda name: "{}")
+            wheel = root / "dncp_test_guard-1.0-py3-none-any.whl"
+            source_name = "dncp_guard/__init__.py"
+            sources = {source_name: b"VALUE = 'installed from verified wheel'\n"}
+            dist_info = "dncp_test_guard-1.0.dist-info"
+            wheel_files = {
+                source_name: sources[source_name],
+                f"{dist_info}/METADATA": b"Metadata-Version: 2.1\nName: dncp-test-guard\nVersion: 1.0\n",
+                f"{dist_info}/WHEEL": b"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+            }
+            record = io.StringIO()
+            writer = csv.writer(record, lineterminator="\n")
+            for name, content in wheel_files.items():
+                digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest()).decode().rstrip("=")
+                writer.writerow((name, f"sha256={digest}", len(content)))
+            writer.writerow((f"{dist_info}/RECORD", "", ""))
+            wheel_files[f"{dist_info}/RECORD"] = record.getvalue().encode()
+            with zipfile.ZipFile(wheel, "w") as archive:
+                for name, content in wheel_files.items():
+                    archive.writestr(name, content)
 
-            def verify(data, filename):
-                self.assertEqual(data, b"verified byte snapshot")
-                wheel.write_bytes(b"substitution after verification")
-                return {"source_commit": release.MATERIAL_CORE_COMMIT,
-                        "sha256": release.MATERIAL_CORE_WHEEL_SHA256,
-                        "source_sha256": {name: release.compute_sha256(b"") for name in names}}
-
-            def consume(args, **kwargs):
-                self.assertEqual(Path(args[-1]).read_bytes(), b"verified byte snapshot")
-
-            with patch.object(install_material_core, "verify_material_core_bytes", side_effect=verify), \
-                    patch.object(install_material_core.subprocess, "run", side_effect=consume), \
-                    patch.object(install_material_core, "distribution", return_value=installed):
-                install_material_core._install_verified(
-                    b"verified byte snapshot", wheel.name, verify(b"verified byte snapshot", wheel.name), "material-core")
+            artifact = {
+                "version": "1.0",
+                "source_commit": "test-commit",
+                "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                "source_sha256": {
+                    name: hashlib.sha256(content).hexdigest() for name, content in sources.items()
+                },
+            }
+            payload = root / "artifact.json"
+            payload.write_text(json.dumps(artifact), encoding="utf-8")
+            hostile = root / "hostile-cwd"
+            shadow_pip = hostile / "pip"
+            shadow_pip.mkdir(parents=True)
+            marker = root / "shadow-pip-ran"
+            (shadow_pip / "__main__.py").write_text(
+                f"from pathlib import Path; Path({str(marker)!r}).touch()\n", encoding="utf-8",
+            )
+            fake_metadata = hostile / f"{dist_info}"
+            fake_metadata.mkdir()
+            (fake_metadata / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: dncp-test-guard\nVersion: 0.0\n", encoding="utf-8",
+            )
+            target = root / "ambient-target"
+            target.mkdir()
+            pip_config = root / "pip.ini"
+            pip_config.write_text(f"[global]\ntarget = {target}\n", encoding="utf-8")
+            environment = root / "venv"
+            venv.EnvBuilder(with_pip=True).create(environment)
+            python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+            project = Path(__file__).resolve().parents[1]
+            script = (
+                "import json,sys; "
+                f"sys.path.insert(0, {str(project)!r}); "
+                "from install_material_core import _install_verified; "
+                "wheel=Path(sys.argv[1]); "
+                "_install_verified(wheel.read_bytes(), wheel.name, json.loads(Path(sys.argv[2]).read_text()), "
+                "'dncp-test-guard')"
+            )
+            script = "from pathlib import Path; " + script
+            env = os.environ.copy()
+            env["PIP_TARGET"] = str(target)
+            env["PIP_CONFIG_FILE"] = str(pip_config)
+            subprocess.run(
+                [str(python), "-c", script, str(wheel), str(payload)],
+                cwd=hostile, env=env, check=True, capture_output=True, text=True, timeout=120,
+            )
+            self.assertFalse(marker.exists())
+            self.assertEqual(list(target.iterdir()), [])
+            check = (
+                "from importlib.metadata import distribution; "
+                "from pathlib import Path; import json; "
+                "d=distribution('dncp-test-guard'); "
+                "assert d.version == '1.0'; "
+                "assert Path(d.locate_file('dncp_guard/__init__.py')).read_text().startswith(\"VALUE = 'installed\"); "
+                "assert json.loads(d.read_text('dncp_material_provenance.json'))['source_commit'] == 'test-commit'"
+            )
+            subprocess.run([str(python), "-I", "-c", check], cwd=hostile, check=True,
+                           capture_output=True, text=True, timeout=30)
 
     @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
                          "Set DNCP_PRIVATE_INTEGRATION=1 for authenticated published-wheel installation")

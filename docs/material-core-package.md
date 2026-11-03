@@ -97,17 +97,26 @@ requirement. Preserve those manifests for offline provenance.
 
 The offline installer verifies one in-memory byte snapshot against the
 independently pinned producer release digest, installs a temporary wheel made
-from that exact snapshot, and checks installed processor hashes derived from
-those verified bytes. It records artifact/source evidence in the installed
-distribution. A bare local wheel install without this evidence
-is refused by DNCP rather than assigned a guessed Git commit.
+from that exact snapshot using the intended interpreter in isolated mode, a
+neutral working directory and scrubbed Python/pip configuration. A second
+isolated invocation of that interpreter checks the installed distribution,
+source hashes and artifact URL evidence before recording provenance. A bare
+local wheel install without this evidence is refused by DNCP rather than
+assigned a guessed Git commit.
 
 Both supported paths load only files owned by the checked distribution under a
-private module namespace. Ordinary `material_core` imports and preloaded modules
-are not used by DNCP. Authenticated Git installs verify PEP 610 version/source
-provenance, not post-install byte integrity. The offline path checks file hashes
-against evidence derived from the independently digest-pinned wheel at load time;
-this is not a signed publisher attestation, and local evidence can be modified.
+private module namespace, executing captured source bytes rather than cached
+`.pyc` files. Material Core and Utility Chest identities and complete Python
+source snapshots are collected before either package executes; the offline
+snapshots are hash-checked, while Git installs retain the PEP 610 provenance-only
+limitation. The transitive module loader serves relative imports only from those
+snapshots, bypassing `.pyc`; ordinary `material_core` imports and preloaded
+modules are not used by DNCP. Authenticated Git installs verify PEP 610
+version/source provenance, not post-install byte integrity; the local
+interpreter and operating system remain trusted. The offline path checks file
+hashes against evidence derived from the independently digest-pinned wheels at
+load time; this is not a signed publisher attestation, and local evidence can
+be modified.
 Neither path claims
 protection against an attacker who can alter the installed distribution and its
 evidence. The process caches its checked core, so reload after intentional updates.
