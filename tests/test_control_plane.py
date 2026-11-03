@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.request
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -105,6 +106,7 @@ class TestControlPlaneMVP(unittest.TestCase):
         pat_ids = [p["id"] for p in cap_pat["related_patterns"]]
         self.assertIn("PAT-0002", pat_ids)
 
+    @patch.dict("os.environ", {"OPENAI_API_KEY": ""})
     def test_pillar5_interaction_frame_compiler_and_lab_evaluation(self) -> None:
         engine = InteractionFrameEngine(
             registry_path=REGISTRY_PATH,
@@ -155,6 +157,7 @@ class TestControlPlaneMVP(unittest.TestCase):
         winners = [v["frame_id"] for v in scored["variants"] if v["ratings"]["winner"]]
         self.assertEqual(winners, ["cute_mentor_builder"])
 
+    @patch.dict("os.environ", {"OPENAI_API_KEY": ""})
     def test_web_workbench_rendering_and_endpoints(self) -> None:
         wb = ControlPlaneWorkbench(
             factory_root=FACTORY_ROOT,

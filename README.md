@@ -81,6 +81,29 @@ Open **`http://127.0.0.1:8780/`** to access all 6 tabs in your browser.
 Launch binds to loopback only and does not seed model evaluations or harvest
 personal chats. Explicit Interaction Lab evaluations remain available in the UI.
 
+Interaction Lab persists execution provenance **per frame variant** alongside
+its compiled prompt, component IDs, manifest digest, output, estimates, and human
+ratings. `execution_mode` distinguishes `deterministic-preview` from
+`live-llm:<requested model>`; `live_call_status` is `not-requested`, `succeeded`,
+or `failed`, with `requested_model` and a structured `live_call_error` (error
+type, safe message, and HTTP status when available). Missing credentials produce
+a preview without a live attempt. Failed calls and unusable completion content
+produce previews explicitly marked as failures, never live successes. Raw
+provider exception text is not persisted because it may contain sensitive data.
+
+The run mode is derived from all variants: homogeneous runs retain their mode,
+different modes are `mixed`, and any failed call adds `(live call failed)`.
+Output cards show their own modes and failure information; history shows the
+aggregate. Existing records without per-variant provenance display `unknown`
+on reload, regardless of their old run label. Reads do not rewrite those records,
+and human ratings do not establish missing provenance.
+
+These records support local comparison, not release acceptance or deployment
+inventory. Requested model names are not verified model snapshots; token counts
+remain estimates, and fallback latency includes the failed attempt plus preview
+generation. No real provider evaluations or native local-runtime acceptance are
+established by mocked regression tests.
+
 ### 3. Network phone-home
 
 #### Library architecture: product nodes, not one central library

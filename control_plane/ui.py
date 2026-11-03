@@ -1001,6 +1001,20 @@ class ControlPlaneWorkbench:
         if active_run:
             variant_cols = []
             for v in active_run["variants"]:
+                provenance_html = ""
+                if v["live_call_status"] == "failed":
+                    error = v["live_call_error"] or {}
+                    error_detail = error.get("type", "Unknown error")
+                    if "http_status" in error:
+                        error_detail += f" (HTTP {error['http_status']})"
+                    provenance_html = (
+                        f'<p role="status">{_badge("Live call failed", "bad")} '
+                        f'{escape(error_detail)}. Deterministic preview used, not a live model result.</p>'
+                    )
+                elif v["live_call_status"] == "unknown":
+                    provenance_html = '<p class="muted">Execution provenance was not recorded; live success cannot be established.</p>'
+                elif v["live_call_status"] == "not-requested":
+                    provenance_html = '<p class="muted">No live call requested (OPENAI_API_KEY is not set). Deterministic preview only.</p>'
                 r = v.get("ratings") or {}
                 is_win = r.get("winner") is True
                 win_badge = _badge("★ Winner", "good") if is_win else ""
@@ -1032,7 +1046,8 @@ class ControlPlaneWorkbench:
                         <pre>{escape(v['compiled_prompt'])}</pre>
                       </details>
                       <div style="margin-bottom:10px;">
-                        <div class="muted" style="font-size:0.76rem;text-transform:uppercase;margin-bottom:3px;">Framed Output ({escape(active_run['execution_mode'])})</div>
+                        <div class="muted" style="font-size:0.76rem;text-transform:uppercase;margin-bottom:3px;">Framed Output ({escape(v['execution_mode'])})</div>
+                        {provenance_html}
                         <pre>{escape(v['output_text'])}</pre>
                       </div>
                       <form method="post" action="/action/rate-frame" style="border-top:1px solid var(--line);padding-top:8px;">
@@ -1074,6 +1089,7 @@ class ControlPlaneWorkbench:
                   <td>{escape(r['created_at'])}</td>
                   <td>{escape(r['task_prompt'][:110])}…</td>
                   <td>{len(r['variants'])} frames ({', '.join(escape(v['frame_id']) for v in r['variants'])})</td>
+                  <td>{escape(r['execution_mode'])}</td>
                   <td>{win_html}</td>
                 </tr>
                 """
@@ -1149,8 +1165,8 @@ class ControlPlaneWorkbench:
           <section class="panel">
             <h2>Persisted Evaluation Runs ({len(runs)})</h2>
             <table>
-              <thead><tr><th>Run ID</th><th>Timestamp</th><th>Task</th><th>Variants</th><th>Outcome</th></tr></thead>
-              <tbody>{''.join(history_rows) or '<tr><td colspan="5" class="muted">No runs recorded yet. Click "Execute Side-by-Side Frame Evaluation" above!</td></tr>'}</tbody>
+              <thead><tr><th>Run ID</th><th>Timestamp</th><th>Task</th><th>Variants</th><th>Execution Mode</th><th>Outcome</th></tr></thead>
+              <tbody>{''.join(history_rows) or '<tr><td colspan="6" class="muted">No runs recorded yet. Click "Execute Side-by-Side Frame Evaluation" above!</td></tr>'}</tbody>
             </table>
           </section>
         </div>
