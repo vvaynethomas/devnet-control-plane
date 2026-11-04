@@ -33,6 +33,7 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     tools = await session.list_tools()
                     self.assertEqual({t.name for t in tools.tools}, {
                         "phone_home_check", "phone_home_submit", "phone_home_list", "phone_home_get",
+                        "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric", "devnet_get_context_handoff",
                     })
                     await session.send_ping()
                     checked = await session.call_tool("phone_home_check", {"query": "sqlite"})
