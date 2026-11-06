@@ -276,10 +276,20 @@ arguments `["-m", "control_plane.cli", "mcp"]`, and those variables.
 
 Tools: `phone_home_check(query, limit)`, `phone_home_submit(...)`,
 `phone_home_list(query, limit, offset)`, `phone_home_get(submission_id)`.
+The same server also exposes `handoff_submit(...)`, `handoff_result(...)`,
+`handoff_get(handoff_id)` and `handoff_list(recipient, scope, limit, offset)`:
+durable local operational packets and correlated caller-reported results in
+the existing inbox. Informational packets require no acceptance; requests can
+be filtered by working scope and explicit recipient. Context/results never grant
+authority, dispatch work or promote canonical records. References are literal,
+freshness unknown, and a snapshot is not complete effective runtime context.
+See the [operational contract and synthetic loop](docs/operational-handoffs.md).
 Submit exposes the JSON fields above; tool errors are SDK error results, not
 successful empty answers. Stdio uses SDK negotiation and no HTTP MCP or external
-connections. This bounded capability/intake adapter does **not** finish DNCP-010's
-planned live-state/Metabolizer/handoff server.
+connections. These bounded capability/intake and operational handoff adapters
+do **not** finish DNCP-010's planned live-state/Metabolizer server or imply a
+working delivery service. The handoff operations are also callable Python methods
+without MCP/UI; no product must use DNCP or the incubator as runtime mediation.
 
 Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, version/help are implemented CLI commands.
 
