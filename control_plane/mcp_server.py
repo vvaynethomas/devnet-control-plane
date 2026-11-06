@@ -49,6 +49,14 @@ def tool_contracts() -> list[dict[str, Any]]:
              {"query": query, "limit": limit, "offset": {"type": "integer", "minimum": 0, "default": 0}}, []),
         tool("phone_home_get", "Export a submission for human review/manual promotion outside DNCP.",
              {"submission_id": string(108, True)}, ["submission_id"]),
+        tool("devnet_get_portfolio_status", "Query Git states, branches, and modified files across the local development network repositories.",
+             {"include_worktrees": {"type": "boolean"}}, []),
+        tool("devnet_get_next_actions", "Query aggregated work queues across products, high-leverage next actions, and items awaiting human acceptance.",
+             {"owner": string(50), "bucket": string(50), "route_query": string(500)}, []),
+        tool("devnet_search_fabric", "Full-text FTS5 search across architectural records (ADRs, DEC, FND, PAT, SRC, ART), runbooks, and indexed AI conversation logs.",
+             {"query": string(2000, True), "kind": string(50), "limit": limit}, ["query"]),
+        tool("devnet_get_context_handoff", "Compile a structured, self-contained Context Handoff Packet (active conversation turns, current git branch/diff, and open gates) for cross-session/cross-harness AI context transfer.",
+             {"session_id": string(100), "turns_limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
     ]
     contracts[1]["inputSchema"]["oneOf"] = [
         {"properties": {"kind": {"const": "material"}}, "required": ["material"]},
@@ -108,11 +116,47 @@ def create_mcp_server(service: PhoneHome) -> Any:
             if name == "handoff_list":
                 return service.handoff_list(arguments.get("recipient", ""), arguments.get("scope", ""),
                                             arguments.get("limit", 20), arguments.get("offset", 0))
-            return service.get(arguments.get("submission_id"))
+            if name == "phone_home_get":
+                return service.get(arguments.get("submission_id"))
+            if name == "devnet_get_portfolio_status":
+                from .portfolio import scan_portfolio
+                return scan_portfolio(service.network_root, service.factory_root, include_worktrees=arguments.get("include_worktrees", False))
+            if name == "devnet_get_next_actions":
+                from .queues import aggregate_queues, match_router_route
+                qdata = aggregate_queues(service.factory_root, service.network_root)
+                owner = arguments.get("owner")
+                bucket = arguments.get("bucket")
+                route_q = arguments.get("route_query")
+                res = {
+                    "summary": qdata["summary"],
+                    "next_actions": qdata["next_actions"],
+                    "awaiting_acceptance": qdata["awaiting_acceptance"],
+                }
+                if route_q:
+                    res["route_match"] = match_router_route(route_q)
+                items = [i for i in qdata["all_items"] if not i.get("is_pointer")]
+                if owner:
+                    items = [i for i in items if i.get("owner_id") == owner]
+                if bucket:
+                    items = [i for i in items if i.get("bucket") == bucket]
+                res["items"] = items[:30]
+                return res
+            if name == "devnet_search_fabric":
+                return service.fabric.search(query=arguments.get("query"), kind_filter=arguments.get("kind", ""), limit=arguments.get("limit", 20))
+            if name == "devnet_get_context_handoff":
+                from .handoff import compile_context_handoff
+                return compile_context_handoff(
+                    session_id=arguments.get("session_id"),
+                    turns_limit=arguments.get("turns_limit", 5),
+                    factory_root=service.factory_root,
+                    network_root=service.network_root,
+                )
+            raise PhoneHomeError(f"unhandled tool: {name}", 400)
         except (ValueError, OSError, sqlite3.Error) as exc:
             error = {"error": str(exc), "status": getattr(exc, "status", 400 if isinstance(exc, ValueError) else 503)}
             return CallToolResult(content=[TextContent(type="text", text=json.dumps(error))], isError=True)
 
+    server.execute_tool = call_tool
     return server
 
 
