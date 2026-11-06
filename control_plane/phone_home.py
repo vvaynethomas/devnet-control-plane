@@ -14,6 +14,7 @@ import uuid
 from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PROJECT_ROOT
 from .capabilities import discover_capabilities, scan_network_modules
 from .fabric import FabricIndex, SECRET_RE, collect_knowledge_entities
+from .operational_handoffs import NOTICE as HANDOFF_NOTICE, validate as validate_handoff
 
 MAX_REQUEST_BYTES = 64 * 1024
 MAX_RESULTS = 50
@@ -113,31 +114,111 @@ class PhoneHome:
 
     @staticmethod
     def _receipt(row: sqlite3.Row) -> dict[str, Any]:
-        return {**json.loads(row["payload"]), "id": row["id"], "submitted_at": row["submitted_at"],
+        payload = json.loads(row["payload"])
+        if payload["kind"] in ("operational_handoff", "operational_result"):
+            return {**payload, "id": row["id"], "submitted_at": row["submitted_at"],
+                    "content_digest": row["digest"], "status": "stored",
+                    "source_freshness": "unknown", "notice": HANDOFF_NOTICE}
+        return {**payload, "id": row["id"], "submitted_at": row["submitted_at"],
                 "content_digest": row["digest"], "status": "provisional", "notice": NOTICE}
 
     def submit(self, payload: Any) -> dict[str, Any]:
         clean = validate_submission(payload)
+        return self._append_submission(clean)
+
+    def _append_submission(self, clean: dict[str, Any], stable_id: str | None = None) -> dict[str, Any]:
         encoded = json.dumps(clean, sort_keys=True, ensure_ascii=False)
         digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
         key = clean["idempotency_key"] or None
         with closing(self._connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
+            if stable_id:
+                existing = conn.execute("SELECT * FROM submissions WHERE id=?", (stable_id,)).fetchone()
+                if existing is not None:
+                    if existing["digest"] != digest:
+                        raise PhoneHomeError("stable id already used with different content", 409)
+                    return self._receipt(existing)
+            if clean["kind"] == "operational_result":
+                parent = conn.execute("SELECT * FROM submissions WHERE id=?",
+                                      ("HANDOFF-" + clean["handoff_id"],)).fetchone()
+                if parent is None:
+                    raise PhoneHomeError("handoff not found", 404)
+                packet = json.loads(parent["payload"])
+                if packet["mode"] != "request":
+                    raise PhoneHomeError("informational packets do not require results", 409)
+                if clean["responder"] != packet["recipient"]:
+                    raise PhoneHomeError("responder must match declared recipient (not authentication)", 409)
             if key:
                 existing = conn.execute("SELECT * FROM submissions WHERE idempotency_key=?", (key,)).fetchone()
                 if existing is not None:
                     if existing["digest"] != digest:
                         raise PhoneHomeError("idempotency_key already used with different content", 409)
                     return self._receipt(existing)
-            sid = f"INTAKE-{uuid.uuid4()}"
+            sid = stable_id or f"INTAKE-{uuid.uuid4()}"
             conn.execute("INSERT INTO submissions VALUES (?, ?, ?, ?, ?)", (sid, utc_now(), digest, key, encoded))
             row = conn.execute("SELECT * FROM submissions WHERE id=?", (sid,)).fetchone()
             conn.commit()
         assert row is not None
         return self._receipt(row)
 
+    def handoff_submit(self, payload: Any) -> dict[str, Any]:
+        clean = validate_handoff(payload, "handoff_submit")
+        return self._append_submission(
+            {**clean, "schema_version": 1, "kind": "operational_handoff", "idempotency_key": ""},
+            "HANDOFF-" + clean["handoff_id"],
+        )
+
+    def handoff_result(self, payload: Any) -> dict[str, Any]:
+        clean = validate_handoff(payload, "handoff_result")
+        return self._append_submission(
+            {**clean, "schema_version": 1, "kind": "operational_result", "idempotency_key": ""},
+            "RESULT-" + clean["result_id"],
+        )
+
+    def handoff_get(self, handoff_id: str) -> dict[str, Any]:
+        packet = self.get("HANDOFF-" + text_field(handoff_id, "handoff_id", 100))
+        with closing(self._connect()) as conn:
+            result = conn.execute(
+                """SELECT * FROM submissions WHERE json_extract(payload,'$.kind')='operational_result'
+                AND json_extract(payload,'$.handoff_id')=? ORDER BY rowid DESC LIMIT 1""",
+                (packet["handoff_id"],),
+            ).fetchone()
+        receipt = self._receipt(result) if result else None
+        return {"schema_version": 1, "packet": packet, "result": receipt,
+                "state": receipt["outcome"] if receipt else "received",
+                "state_basis": "caller-reported, not acceptance or verified completion",
+                "notice": HANDOFF_NOTICE}
+
+    def handoff_list(self, recipient: str = "", scope: str = "", limit: int = 20,
+                     offset: int = 0) -> dict[str, Any]:
+        text_field(recipient, "recipient", 200, required=False)
+        text_field(scope, "scope", 200, required=False)
+        limit = result_limit(limit)
+        if type(offset) is not int or not 0 <= offset <= 2147483647:
+            raise PhoneHomeError("offset must be an integer from 0 to 2147483647")
+        predicate = """
+            FROM submissions p WHERE json_extract(p.payload,'$.kind')='operational_handoff'
+            AND json_extract(p.payload,'$.mode')='request'
+            AND (?='' OR json_extract(p.payload,'$.recipient')=?)
+            AND (?='' OR EXISTS (SELECT 1 FROM json_each(p.payload,'$.scope') WHERE value=?))
+            AND COALESCE((SELECT json_extract(r.payload,'$.outcome') FROM submissions r
+                WHERE json_extract(r.payload,'$.kind')='operational_result'
+                AND json_extract(r.payload,'$.handoff_id')=json_extract(p.payload,'$.handoff_id')
+                ORDER BY r.rowid DESC LIMIT 1),'received') != 'completed'
+        """
+        args = (recipient, recipient, scope, scope)
+        with closing(self._connect()) as conn:
+            conn.execute("BEGIN")
+            total = conn.execute("SELECT count(*) " + predicate, args).fetchone()[0]
+            rows = conn.execute("SELECT p.* " + predicate + " ORDER BY p.rowid LIMIT ? OFFSET ?",
+                                (*args, limit, offset)).fetchall()
+            packets = [self._receipt(row) for row in rows]
+        return {"schema_version": 1, "notice": HANDOFF_NOTICE, "total": total, "offset": offset,
+                "next_offset": offset + limit if offset + limit < total else None,
+                "handoffs": packets}
+
     def get(self, submission_id: str) -> dict[str, Any]:
-        sid = text_field(submission_id, "id", 100)
+        sid = text_field(submission_id, "id", 108)
         with closing(self._connect()) as conn:
             row = conn.execute("SELECT * FROM submissions WHERE id=?", (sid,)).fetchone()
         if row is None:

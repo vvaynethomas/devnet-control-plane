@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import test_phone_home as fixtures
+from test_operational_handoffs import example_packet, example_result
 
 
 class TestPhoneHomeMCP(unittest.TestCase):
@@ -33,6 +34,7 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     tools = await session.list_tools()
                     self.assertEqual({t.name for t in tools.tools}, {
                         "phone_home_check", "phone_home_submit", "phone_home_list", "phone_home_get",
+                        "handoff_submit", "handoff_result", "handoff_get", "handoff_list",
                         "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric", "devnet_get_context_handoff",
                     })
                     await session.send_ping()
@@ -69,6 +71,61 @@ class TestPhoneHomeMCP(unittest.TestCase):
                         failure = await session.call_tool(tool, arguments)
                         self.assertTrue(failure.isError)
                     self.assertEqual(self.service.list()["total"], 2)
+        asyncio.run(exercise())
+
+    @unittest.skipUnless(importlib.util.find_spec("mcp"), "optional MCP extra is not installed")
+    def test_real_stdio_operational_handoff_loop(self) -> None:
+        from mcp import ClientSession
+        from mcp.client.stdio import StdioServerParameters, stdio_client
+
+        async def exercise() -> None:
+            args = ["-m", "control_plane.cli", "--factory-root", str(self.factory),
+                    "--network-root", str(self.network), "--data-dir", str(self.data), "mcp"]
+            env = dict(os.environ)
+            env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+            params = StdioServerParameters(command=sys.executable, args=args, env=env, cwd=self.root)
+            async with stdio_client(params) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    await session.initialize()
+                    packet = example_packet()
+                    submitted = await session.call_tool("handoff_submit", packet)
+                    self.assertFalse(submitted.isError)
+                    duplicate = await session.call_tool("handoff_submit", packet)
+                    self.assertEqual(submitted.structuredContent, duplicate.structuredContent)
+                    pending = await session.call_tool("handoff_list", {"recipient": packet["recipient"]})
+                    self.assertEqual(pending.structuredContent["total"], 1)
+                    result = await session.call_tool("handoff_result", example_result())
+                    self.assertFalse(result.isError)
+                    detail = await session.call_tool("handoff_get", {"handoff_id": packet["handoff_id"]})
+                    self.assertEqual(detail.structuredContent, self.service.handoff_get(packet["handoff_id"]))
+                    self.assertEqual(detail.structuredContent["result"], result.structuredContent)
+                    info = {**packet, "mode": "information", "handoff_id": "mcp-info"}
+                    del info["requested_action"]
+                    self.assertFalse((await session.call_tool("handoff_submit", info)).isError)
+                    pending = await session.call_tool("handoff_list", {})
+                    self.assertEqual(pending.structuredContent["total"], 1)
+                    for tool, arguments in [
+                        ("handoff_submit", {**packet, "context_snapshot": "conflict"}),
+                        ("handoff_submit", {**packet, "authority": "approved"}),
+                        ("handoff_result", {**example_result(), "summary": "conflict"}),
+                        ("handoff_result", {**example_result(), "outcome": "approved"}),
+                        ("handoff_result", {**example_result(), "handoff_id": "missing", "result_id": "missing"}),
+                        ("handoff_get", {"handoff_id": "missing"}),
+                        ("handoff_get", {}),
+                        ("handoff_list", {"limit": True}),
+                        ("handoff_submit", {**packet, "context_snapshot": "ghp_" + "a" * 30}),
+                    ]:
+                        failure = await session.call_tool(tool, arguments)
+                        self.assertTrue(failure.isError, tool)
+                        self.assertNotIn("ghp_", str(failure))
+                    self.assertEqual(self.service.list()["total"], 3)
+            async with stdio_client(params) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    await session.initialize()
+                    reloaded = await session.call_tool("handoff_get", {"handoff_id": example_packet()["handoff_id"]})
+                    self.assertFalse(reloaded.isError)
+                    self.assertEqual(reloaded.structuredContent["state"], "blocked")
+                    self.assertEqual(reloaded.structuredContent["result"]["summary"], example_result()["summary"])
         asyncio.run(exercise())
 
     def test_missing_optional_dependency_is_actionable(self) -> None:

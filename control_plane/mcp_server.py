@@ -8,6 +8,7 @@ from typing import Any
 
 from .phone_home import KINDS, PhoneHome, PhoneHomeError
 from .material_capability import FORMATS
+from .operational_handoffs import contracts as handoff_contracts
 
 
 def tool_contracts() -> list[dict[str, Any]]:
@@ -47,7 +48,7 @@ def tool_contracts() -> list[dict[str, Any]]:
         tool("phone_home_list", "List/export provisional intake with pagination, not canonical knowledge.",
              {"query": query, "limit": limit, "offset": {"type": "integer", "minimum": 0, "default": 0}}, []),
         tool("phone_home_get", "Export a submission for human review/manual promotion outside DNCP.",
-             {"submission_id": string(100, True)}, ["submission_id"]),
+             {"submission_id": string(108, True)}, ["submission_id"]),
         tool("devnet_get_portfolio_status", "Query Git states, branches, and modified files across the local development network repositories.",
              {"include_worktrees": {"type": "boolean"}}, []),
         tool("devnet_get_next_actions", "Query aggregated work queues across products, high-leverage next actions, and items awaiting human acceptance.",
@@ -62,6 +63,18 @@ def tool_contracts() -> list[dict[str, Any]]:
         {"properties": {"kind": {"enum": list(KINDS)}},
          "required": ["title", "summary", "source_repo", "reuse_query"]},
     ]
+    for name, fields in handoff_contracts().items():
+        contracts.append(tool(
+            name, "Store untrusted operational data locally; no dispatch, acceptance or authority.",
+            fields, [field for field in fields if field != "requested_action"],
+        ))
+    contracts.extend([
+        tool("handoff_get", "Read a packet and latest caller-reported result, not verified completion.",
+             {"handoff_id": string(100, True)}, ["handoff_id"]),
+        tool("handoff_list", "List pending requests only; information needs no acceptance. Exact filters.",
+             {"recipient": string(200), "scope": string(200), "limit": limit,
+              "offset": {"type": "integer", "minimum": 0, "maximum": 2147483647, "default": 0}}, []),
+    ])
     return contracts
 
 
@@ -94,6 +107,15 @@ def create_mcp_server(service: PhoneHome) -> Any:
                 return service.submit(arguments)
             if name == "phone_home_list":
                 return service.list(arguments.get("query", ""), arguments.get("limit", 20), arguments.get("offset", 0))
+            if name == "handoff_submit":
+                return service.handoff_submit(arguments)
+            if name == "handoff_result":
+                return service.handoff_result(arguments)
+            if name == "handoff_get":
+                return service.handoff_get(arguments.get("handoff_id"))
+            if name == "handoff_list":
+                return service.handoff_list(arguments.get("recipient", ""), arguments.get("scope", ""),
+                                            arguments.get("limit", 20), arguments.get("offset", 0))
             if name == "phone_home_get":
                 return service.get(arguments.get("submission_id"))
             if name == "devnet_get_portfolio_status":

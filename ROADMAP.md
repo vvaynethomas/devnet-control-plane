@@ -45,6 +45,17 @@ Before declaring v0.1.0 delivered, resolve DNCP-001 packaging/CLI blockers and c
   human review; no scheduled scan or mandatory agent reporting.
 - **Model Context Protocol (MCP) Server:** Native `devnet-context-server` allowing any MCP-compliant agent (Claude Code, Antigravity, Cursor) to pull situational context without human copy-pasting.
 
+**Bounded operational handoffs (2026-11-04, development implementation):** the
+existing phone-home stdio server now stores caller-supplied context packets and
+correlated results durably in its local inbox, with exact recipient/scope pending
+filters and callable Python operations independent of MCP/UI. The offline
+ALM-style report to a synthetic delivery recipient returns blockers, not a
+deployment or approval. Context is not authority, informational exchanges need
+no acceptance, and declared revisions do not establish freshness or complete
+effective context. This advances only the operational handoff portion of
+DNCP-010, not live-state discovery, background routing, library federation or
+ALM release qualification. See [the contract](docs/operational-handoffs.md).
+
 DNCP-011 (local model bridge) and DNCP-012 (ALM consumer exchange) remain unscheduled P3 backlog items; the configurable outbound completion client is only partial evidence for DNCP-011. Versions above are scope targets, not release commitments or acceptance records.
 
 ## Unreleased Advisory Integration (DNCP-013)

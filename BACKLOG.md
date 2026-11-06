@@ -15,7 +15,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-007 | Zero-Touch Local AI Gateway Proxy: loopback /v1/chat/completions proxy logging streaming tokens, prompts, and costs for Gemini API, Claude API, Perplexity, and OpenAI. | DNCP-004 | P2 | Open |
 | DNCP-008 | Epistemic Matrix & Knowledge Drift Inspector: visual UI grid showing agent knowledge coverage across 22 repos, drift detection, and 1-click alignment briefs. | DNCP-005 | P2 | Open |
 | DNCP-009 | The Metabolizer & Shared Blackboard: historical background synthesis/24h digest scope; approved provisional first repository digester is explicit opt-in and user-invoked, not scheduled synthesis or required reporting. | DNCP-008 | P2 | Open (partial; bounded deterministic repository evidence/residue and provisional cached comparison implemented; blackboard/background synthesis not implemented) |
-| DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open (partial; DNCP-014 adds only local reuse/intake stdio tools, not live state or handoffs) |
+| DNCP-010 | Model Context Protocol (MCP) Server: devnet-context-server exposing live cross-agent state, portfolio status, and handoff packets to any MCP-enabled tool. | DNCP-009 | P2 | Open (partial; local reuse/intake and durable operational handoff/result stdio tools implemented; no live cross-agent state, automatic delivery or Metabolizer server) |
 | DNCP-011 | Native Local Model Bridge for Interaction Lab (Ollama / llama.cpp / vLLM localhost endpoint) for offline side-by-side frame benchmarks. | DNCP-002 | P3 | Open (partial; configurable OpenAI-compatible client present) |
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
@@ -24,6 +24,16 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-016 | Network Deployment & Infrastructure Observer: read repository edge and persistence manifests (vercel.json, package.json, Supabase schema pointers) in Portfolio discovery to surface edge deployment topology, build readiness, and drift alongside Git status without triggering mutations or remote deploys. | DNCP-002, DNCP-013 | P2 | Open |
 
 ## Evidence and Remaining Acceptance Gates
+
+**Operational handoff development slice (2026-11-04):** callable Python service
+and four MCP stdio tools reuse the existing phone-home inbox for immutable
+caller-ID packets and correlated reports, with pending request filters.
+Informational packets need no acceptance. Synthetic service and real SDK
+stdio restart tests cover the offline ALM-style report/blocked-preview loop,
+idempotency/conflicts, provenance and validation. This is not a real delivery
+service, verified completion, ALM release qualification, or complete DNCP-010
+acceptance; no priorities/dependencies change.
+See [the operational contract](docs/operational-handoffs.md).
 
 The following table preserves the **baseline audit**. Subsequent phone-home, digester and
 ownership changes are recorded below; baseline missing-CLI/registry statements
