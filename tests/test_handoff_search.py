@@ -122,6 +122,22 @@ class HandoffSearchTests(unittest.TestCase):
         self.assertIn("Draft unavailable", panel(workbench, prepare_query="!!!"))
         self.assertEqual(self.service.list()["total"], before)
 
+    def test_capabilities_inbox_list_labels_handoffs_and_results(self) -> None:
+        # Found in the browser: the list assumed every inbox entry had a title and the tab returned a 500.
+        from types import SimpleNamespace
+        from control_plane.ui import ControlPlaneWorkbench
+        self.service.submit({
+            "kind": "tool", "title": "Synthetic intake", "summary": "A tool.", "source_repo": "synthetic/repo",
+            "reuse_query": "pelican",
+        })
+        self.service.handoff_submit(packet("hostile", ["zoo"], "<script>x</script> pelican"))
+        workbench = SimpleNamespace(phone_home=self.service, phone_home_csrf="token")
+        html = ControlPlaneWorkbench.render_phone_home(workbench)
+        self.assertIn("Synthetic intake (provisional)", html)
+        self.assertIn("Handoff hostile: &lt;script&gt;x&lt;/script&gt; pelican (stored)", html)
+        self.assertIn("Result stuck-1 for handoff stuck: blocked (stored)", html)
+        self.assertNotIn("<script>x", html)
+
     def test_workbench_endpoints_serve_search_packet_and_draft(self) -> None:
         from http.server import ThreadingHTTPServer
         import json
