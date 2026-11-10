@@ -11,6 +11,7 @@ from typing import Any
 
 from . import FACTORY_ROOT, PROJECT_ROOT
 from .fabric import FabricIndex
+from .layout import iter_primary_checkouts
 
 
 def _module_details(source: str) -> tuple[str, list[str]]:
@@ -32,10 +33,12 @@ def scan_network_modules(
              factory_root / ".github" / "skills", factory_root / "projects"]
     try:
         if network_root.is_dir():
-            roots.extend(p for p in sorted(network_root.iterdir()) if p.is_dir()
-                         and not p.is_symlink() and not getattr(p, "is_junction", lambda: False)()
-                         and (p / ".git").exists() and p.resolve() != factory_root.resolve()
-                         and p.name != "devnet-control-plane" and p.resolve() != PROJECT_ROOT.resolve())
+            roots.extend(
+                path for path in iter_primary_checkouts(network_root)
+                if path.resolve() != factory_root.resolve()
+                and path.name != "devnet-control-plane"
+                and path.resolve() != PROJECT_ROOT.resolve()
+            )
         else:
             warnings.append(f"Network directory unavailable: {network_root}")
     except OSError as exc:

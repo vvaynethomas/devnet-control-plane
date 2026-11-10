@@ -43,7 +43,11 @@ def find_factory_root(network_root: Path | None = None) -> Path:
     if "FACTORY_ROOT" in os.environ:
         return Path(os.environ["FACTORY_ROOT"]).resolve()
     net = network_root or find_network_root()
-    for candidate in [net / "AIAD-ex12410", net / "product-incubator"]:
+    for candidate in [
+        net / "devnet" / "AIAD-ex12410" / "main",
+        net / "AIAD-ex12410",
+        net / "product-incubator",
+    ]:
         if (candidate / "cockpit" / "project-registry.json").is_file():
             return candidate
     curr = Path.cwd().resolve()
