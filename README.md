@@ -277,7 +277,8 @@ arguments `["-m", "control_plane.cli", "mcp"]`, and those variables.
 Tools: `phone_home_check(query, limit)`, `phone_home_submit(...)`,
 `phone_home_list(query, limit, offset)`, `phone_home_get(submission_id)`.
 The same server also exposes `handoff_submit(...)`, `handoff_result(...)`,
-`handoff_get(handoff_id)` and `handoff_list(recipient, scope, limit, offset)`:
+`handoff_get(handoff_id)`, `handoff_list(recipient, scope, limit, offset)` and
+the read-only `handoff_prepare(...)`, which drafts a packet with retrieved references:
 durable local operational packets and correlated caller-reported results in
 the existing inbox. Informational packets require no acceptance; requests can
 be filtered by working scope and explicit recipient. Context/results never grant

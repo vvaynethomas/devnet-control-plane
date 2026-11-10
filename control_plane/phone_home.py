@@ -175,6 +175,11 @@ class PhoneHome:
             "RESULT-" + clean["result_id"],
         )
 
+    def handoff_prepare(self, payload: Any) -> dict[str, Any]:
+        """Read-only draft with retrieved references; stores and submits nothing."""
+        from .handoff_prepare import prepare
+        return prepare(self, payload)
+
     def handoff_get(self, handoff_id: str) -> dict[str, Any]:
         packet = self.get("HANDOFF-" + text_field(handoff_id, "handoff_id", 100))
         with closing(self._connect()) as conn:

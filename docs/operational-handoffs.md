@@ -56,6 +56,44 @@ filters are exact and case-sensitive, not substring or wildcard matches. Page
 size is 1-50 (default 20); offset is 0-2147483647. Results and packets are also
 retained for generic inbox export, even when absent from the pending view.
 
+## Preparing a packet with retrieved references
+
+`PhoneHome.handoff_prepare(payload)` and the MCP tool `handoff_prepare` are
+read-only. They store nothing, submit nothing, build no cache and open no
+reference. The caller reviews the returned draft, adds `handoff_id`, `mode`,
+`sender` and `recipient`, and submits it with `handoff_submit`.
+
+Input (all optional, but at least one of `query`, `requested_action` or `scope`):
+`query` (at most 2,000 characters; replaces the derived search text), `scope`,
+`requested_action`, `context_snapshot`, `source_refs` (kept first in the draft),
+`include_conversation_hub` (default true) and `limit` (1-10 per source, default 5).
+Search terms are the distinct words of `query`, or of `requested_action` plus
+`scope`, without common stop words, capped at 24.
+
+Three local sources are searched:
+
+| Source | What matches | Reference written to the draft |
+|---|---|---|
+| Past handoffs | The newest 500 packets in this inbox that share an exact scope label or a search term in their requested action or scope; ordered by shared scope, shared terms, then recency. Each match reports its latest caller-reported state. | `handoff:<handoff_id>`, revision `sha256:<content digest>` |
+| Fabric records | Lexical matches among knowledge and registry records in an already built Fabric cache. Ambient local session transcripts are excluded. | the record ID, revision `null` |
+| Conversation Hub | Lexical matches in the explicitly indexed library (see [the consumer contract](conversation-library-consumer.md#fabric-index-over-the-library)). | `conversation-hub://<id>/<revision>#message=<n>`, revision pinned |
+
+**The draft carries references only.** No conversation text, snippet or record
+body is copied into it, because a submitted packet is retained in the
+unencrypted, exportable inbox. A Conversation Hub match reports platform,
+dates, counts and the message offset; its title is included only when the
+source supplied one, never when it was derived from message text. A recipient
+reads a referenced conversation through Conversation Hub with its own access.
+
+The draft's `source_refs` hold the caller's references first, then matches
+taken alternately from the three sources up to the 20-entry packet limit;
+`matches` lists every match with `rank` and `in_draft`, and
+`references_omitted` counts those that did not fit. `coverage` says which
+sources were searched: an unbuilt Fabric cache or an unindexed library is
+reported there, not treated as "no precedent". Matches are lexical relevance,
+not applicability, trust or endorsement, and referenced material remains
+untrusted historical data.
+
 ## Trust and storage boundaries
 
 No reference is fetched, opened or resolved; a declared revision/digest is

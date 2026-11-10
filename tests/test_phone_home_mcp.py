@@ -35,7 +35,7 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     tools = await session.list_tools()
                     self.assertEqual({t.name for t in tools.tools}, {
                         "phone_home_check", "phone_home_submit", "phone_home_list", "phone_home_get",
-                        "handoff_submit", "handoff_result", "handoff_get", "handoff_list",
+                        "handoff_submit", "handoff_result", "handoff_get", "handoff_list", "handoff_prepare",
                         "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric",
                         "devnet_find_precedents", "devnet_inspect_precedent", "devnet_get_context_handoff",
                     })
@@ -118,6 +118,11 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     self.assertFalse((await session.call_tool("handoff_submit", info)).isError)
                     pending = await session.call_tool("handoff_list", {})
                     self.assertEqual(pending.structuredContent["total"], 1)
+                    prepared = await session.call_tool("handoff_prepare", {"scope": packet["scope"]})
+                    self.assertFalse(prepared.isError)
+                    self.assertIn({"ref": "handoff:" + packet["handoff_id"],
+                                   "revision": "sha256:" + submitted.structuredContent["content_digest"]},
+                                  prepared.structuredContent["draft"]["source_refs"])
                     for tool, arguments in [
                         ("handoff_submit", {**packet, "context_snapshot": "conflict"}),
                         ("handoff_submit", {**packet, "authority": "approved"}),
@@ -127,6 +132,8 @@ class TestPhoneHomeMCP(unittest.TestCase):
                         ("handoff_get", {"handoff_id": "missing"}),
                         ("handoff_get", {}),
                         ("handoff_list", {"limit": True}),
+                        ("handoff_prepare", {}),
+                        ("handoff_prepare", {"query": "ghp_" + "a" * 30}),
                         ("handoff_submit", {**packet, "context_snapshot": "ghp_" + "a" * 30}),
                     ]:
                         failure = await session.call_tool(tool, arguments)
