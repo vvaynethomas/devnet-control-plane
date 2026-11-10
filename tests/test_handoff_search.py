@@ -95,5 +95,70 @@ class HandoffSearchTests(unittest.TestCase):
             self.assertNotIn("ghp_", str(caught.exception))
 
 
+    def test_queues_tab_panel_lists_escaped_handoffs_and_a_draft_without_storing(self) -> None:
+        from types import SimpleNamespace
+        from control_plane.ui import ControlPlaneWorkbench
+        self.service.handoff_submit(packet("hostile", ["zoo"], "<script>x</script> pelican <b>bold</b>"))
+        panel = ControlPlaneWorkbench.render_handoffs_panel
+        workbench = SimpleNamespace(phone_home=self.service)
+        before = self.service.list()["total"]
+        html = panel(workbench)
+        self.assertIn("Showing 6 of 6", html)
+        self.assertIn("/api/handoffs?id=stuck", html)
+        self.assertIn('badge-good">completed', html)
+        self.assertIn("Blocker: No signing key.", html)
+        for raw in ("<script>x", "<b>bold"):
+            self.assertNotIn(raw, html)
+        blocked = panel(workbench, state="blocked")
+        self.assertIn("Showing 1 of 1", blocked)
+        self.assertIn('<option value="blocked" selected>', blocked)
+        self.assertIn("Showing 0 of 0", panel(workbench, "absentterm"))
+        self.assertIn("No stored handoff matches", panel(workbench, "absentterm"))
+        self.assertNotIn("Copy draft JSON", html)
+        drafted = panel(workbench, prepare_query="pelican registry")
+        self.assertIn("Copy draft JSON", drafted)
+        self.assertIn("handoff:title", drafted)
+        self.assertIn("handoff_id, mode, sender, recipient", drafted)
+        self.assertIn("Draft unavailable", panel(workbench, prepare_query="!!!"))
+        self.assertEqual(self.service.list()["total"], before)
+
+    def test_workbench_endpoints_serve_search_packet_and_draft(self) -> None:
+        from http.server import ThreadingHTTPServer
+        import json
+        import threading
+        from types import SimpleNamespace
+        import urllib.error
+        import urllib.request
+        from control_plane.ui import make_handler
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(SimpleNamespace(phone_home=self.service)))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}/api/"
+
+        def get(path: str) -> tuple[int, dict]:
+            try:
+                with urllib.request.urlopen(base + path, timeout=10) as response:
+                    return response.status, json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                with error:
+                    return error.code, json.loads(error.read())
+
+        before = self.service.list()["total"]
+        status, body = get("handoffs?q=pelican&state=received")
+        self.assertEqual((status, body["handoffs"][0]["handoff_id"]), (200, "title"))
+        self.assertEqual(get("handoffs?state=blocked&recipient=other-recipient")[1]["total"], 1)
+        status, body = get("handoffs?id=done")
+        self.assertEqual((status, body["state"]), (200, "completed"))
+        self.assertEqual(get("handoffs?id=absent")[0], 404)
+        self.assertEqual(get("handoffs?state=bogus")[0], 400)
+        status, body = get("handoff-prepare?q=pelican+registry")
+        self.assertEqual((status, body["mode"]), (200, "read-only-handoff-preparation"))
+        self.assertEqual(get("handoff-prepare")[0], 400)
+        self.assertEqual(self.service.list()["total"], before)
+
+
 if __name__ == "__main__":
     unittest.main()

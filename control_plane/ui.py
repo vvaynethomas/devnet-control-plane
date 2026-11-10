@@ -9,7 +9,7 @@ import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 import webbrowser
 
 from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PACKAGE_VERSION, REGISTRY_PATH
@@ -722,6 +722,82 @@ class ControlPlaneWorkbench:
             </thead>
             <tbody>{''.join(rows_html)}</tbody>
           </table>
+        </section>
+        """
+
+    def render_handoffs_panel(self, query: str = "", state: str = "", prepare_query: str = "") -> str:
+        """Stored operational handoffs and an optional prepared draft. Read-only; nothing is stored or sent."""
+        from .handoff_search import STATES
+        heading = "<h2>Operational Handoffs (stored packets and reported results)</h2>"
+        state = state if state in STATES else ""
+        try:
+            found = self.phone_home.handoff_search(query[:2000], state=state, limit=20)
+        except PhoneHomeError as exc:
+            return f'<section class="panel">{heading}<p class="muted">Handoffs unavailable: {escape(str(exc))}</p></section>'
+        except (OSError, sqlite3.Error):
+            return f'<section class="panel">{heading}<p class="muted">The handoff inbox could not be read.</p></section>'
+        draft, problem = None, ""
+        if prepare_query.strip():
+            try:
+                draft = self.phone_home.handoff_prepare({"query": prepare_query[:2000]})
+            except PhoneHomeError as exc:
+                problem = str(exc)
+            except (OSError, sqlite3.Error):
+                problem = "a local store could not be read."
+        tones = {"received": "accent", "blocked": "bad", "preview": "warn", "completed": "good"}
+        rows = []
+        for item in found["handoffs"]:
+            detail = item.get("snippet") or item["requested_action"]
+            blockers = "".join(f'<div class="muted" style="font-size:0.8rem;">Blocker: {escape(text)}</div>'
+                               for text in item["blockers"])
+            rows.append(
+                f"<tr><td><a href=\"/api/handoffs?id={quote(item['handoff_id'])}\"><code>{escape(item['handoff_id'])}</code></a>"
+                f"<div>{_badge(item['mode'], 'neutral')}</div></td>"
+                f"<td>{escape(item['sender'])} → {escape(item['recipient'])}"
+                f"<div>{''.join(_badge(label, 'neutral') for label in item['scope'])}</div></td>"
+                f"<td>{_badge(item['state'], tones[item['state']])}"
+                f"<div class=\"muted\" style=\"font-size:0.8rem;\">{item['result_count']} result(s)</div></td>"
+                f"<td>{escape(detail)}{blockers}</td>"
+                f"<td class=\"muted\" style=\"font-size:0.8rem;\">{escape(item['submitted_at'][:19])}</td></tr>")
+        options = "".join(f'<option value="{name}"{" selected" if name == state else ""}>{name}</option>' for name in STATES)
+        table = (f"<table><thead><tr><th>Handoff</th><th>From → To / Scope</th><th>Reported state</th>"
+                 f"<th>Requested action or match</th><th>Submitted</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+                 if rows else '<p class="muted">No stored handoff matches.</p>')
+        truncated = " Only the newest packets were scanned." if found["truncated"] else ""
+        drafted = f'<p class="muted">Draft unavailable: {escape(problem)}</p>' if problem else ""
+        if draft:
+            packet = json.dumps(draft["draft"], indent=2, ensure_ascii=False)
+            searched = ", ".join(f"{name}: {'searched' if info['searched'] else 'not searched'}"
+                                 for name, info in draft["coverage"].items())
+            drafted = f"""
+            <p class="muted">{len(draft['draft'].get('source_refs', []))} reference(s) in the draft,
+            {draft['references_omitted']} omitted; sources: {escape(searched)}.
+            Still to fill in: <code>{escape(', '.join(draft['missing_fields']))}</code>.</p>
+            <button type="button" class="btn" {_copy_attributes(packet)}>Copy draft JSON</button>
+            <pre>{escape(packet)}</pre>"""
+        return f"""
+        <section class="panel">
+          {heading}
+          <p class="muted">{escape(found['notice'])} Showing {len(rows)} of {found['total']}
+          ({found['scanned']} scanned).{truncated}</p>
+          <form method="get" action="/" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
+            <input type="hidden" name="tab" value="queues">
+            <input type="search" name="hq" maxlength="2000" value="{escape(query)}" placeholder="Search stored handoffs…" style="flex:1;min-width:240px;">
+            <select name="hstate"><option value="">Any state</option>{options}</select>
+            <button type="submit" class="btn">Search handoffs</button>
+          </form>
+          {table}
+          <h3>Prepare a draft with retrieved references</h3>
+          <p class="muted">Read-only: searches past handoffs, Fabric records, registered ALM ledgers and the indexed
+          Conversation Hub, and returns references only. Nothing is stored or submitted; submit with
+          <code>handoff_submit</code> after filling in the missing fields.</p>
+          <form method="get" action="/" style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">
+            <input type="hidden" name="tab" value="queues">
+            <input type="search" name="hprep" maxlength="2000" value="{escape(prepare_query)}" placeholder="What is the handoff about?" style="flex:1;min-width:240px;">
+            <button type="submit" class="btn">Prepare draft</button>
+          </form>
+          {drafted}
+          <p class="muted" style="font-size:0.8rem;">JSON: <code>/api/handoffs?q=…&amp;state=…</code>, <code>/api/handoffs?id=…</code>, <code>/api/handoff-prepare?q=…</code>.</p>
         </section>
         """
 
@@ -1954,6 +2030,22 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                     else:
                         self._send_json(packet)
                 return
+            if parsed.path in ("/api/handoffs", "/api/handoff-prepare"):
+                try:
+                    if parsed.path == "/api/handoff-prepare":
+                        data = workbench.phone_home.handoff_prepare({"query": qs.get("q", [""])[0]})
+                    elif qs.get("id"):
+                        data = workbench.phone_home.handoff_get(qs["id"][0])
+                    else:
+                        data = workbench.phone_home.handoff_search(
+                            qs.get("q", [""])[0], qs.get("scope", [""])[0], qs.get("recipient", [""])[0],
+                            qs.get("state", [""])[0], 20)
+                    self._send_json(data)
+                except PhoneHomeError as exc:
+                    self._send_json({"error": str(exc)}, exc.status)
+                except (OSError, sqlite3.Error):
+                    self._send_json({"error": "handoff inbox unavailable"}, 503)
+                return
             if parsed.path == "/api/handoff":
                 from control_plane.handoff import compile_context_handoff
                 sess = qs.get("session", [None])[0]
@@ -1986,6 +2078,10 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                     owner_filter=qs.get("owner", [""])[0],
                     bucket_filter=qs.get("bucket", [""])[0],
                     route_query=qs.get("route_q", [""])[0],
+                ) + workbench.render_handoffs_panel(
+                    query=qs.get("hq", [""])[0],
+                    state=qs.get("hstate", [""])[0],
+                    prepare_query=qs.get("hprep", [""])[0],
                 ) + inspector_html
                 self._send_html(_layout("queues", "Queues & Next Actions", body, flash=flash))
             elif tab == "fabric":
