@@ -90,6 +90,12 @@ def verify_utility_bytes(data: bytes, filename: str) -> dict[str, object]:
                                   UTILITY_COMMIT, UTILITY_WHEEL_SHA256, "credential_patterns")
 
 
+def verify_alm_bytes(data: bytes, filename: str) -> dict[str, object]:
+    """Validate one byte snapshot of the pinned alm-lifecycle-core release wheel."""
+    return _verify_producer_bytes(data, filename, "alm-lifecycle-core", ALM_VERSION,
+                                  ALM_COMMIT, ALM_WHEEL_SHA256, "alm_lifecycle")
+
+
 def _verify_producer_bytes(data: bytes, filename: str, name: str, version: str,
                            commit: str, digest: str, package: str) -> dict[str, object]:
     expected_filename = f"{name.replace('-', '_')}-{version}-py3-none-any.whl"
@@ -108,6 +114,10 @@ def _verify_producer_bytes(data: bytes, filename: str, name: str, version: str,
             required += [f"{package}/{module}.py" for module in ("contract", "conversation", "safety", "supplied")]
             if UTILITY_REQUIREMENT not in (metadata.get_all("Requires-Dist") or []):
                 raise ValueError("core does not declare the pinned transitive utility dependency")
+        if package == "alm_lifecycle":
+            required.append(f"{package}/lifecycle.py")
+            if metadata.get_all("Requires-Dist"):
+                raise ValueError("alm-lifecycle-core must not declare runtime dependencies")
         if not all(module in names for module in required):
             raise ValueError("material-core wheel is missing required package modules")
         source_hashes = {name: compute_sha256(archive.read(name)) for name in names

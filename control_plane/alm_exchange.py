@@ -29,7 +29,8 @@ REGISTRATIONS_FILE = "alm_ledgers.json"
 LIFECYCLE_KINDS = {"configuration", "evaluation", "proposal", "review", "release", "deployment"}
 NAMESPACE = "_dncp_verified_alm_lifecycle"
 INSTALL_GUIDANCE = (
-    'Install with authenticated private repository access: pip install "devnet-control-plane[alm]". '
+    'Install with authenticated private repository access: pip install "devnet-control-plane[alm]", '
+    "or offline with install_alm_core.py and the digest-pinned producer wheel. "
     f"Required alm-lifecycle-core=={ALM_VERSION} at commit {ALM_COMMIT}."
 )
 NOTICE = (

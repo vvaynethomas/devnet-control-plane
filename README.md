@@ -505,6 +505,9 @@ python install_material_core.py dist\material-core\material_core-0.2.0rc1-py3-no
 pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
 pip check
 ```
+The optional ALM lifecycle core has the same kind of offline path, from its published
+wheel: `python install_alm_core.py <dir>\alm_lifecycle_core-0.2.0a1-py3-none-any.whl`
+(see [the ALM consumer note](docs/alm-ledger-consumer.md)).
 DNCP emits its own wheel/source archive and `RELEASE_MANIFEST.json`.
 The Material Core and Utility Chest wheels are downloaded from their
 independently digest-pinned producer releases; DNCP does not rebuild those

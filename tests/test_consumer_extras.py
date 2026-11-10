@@ -1,4 +1,4 @@
-"""Authenticated isolated installation matrix for both optional consumers."""
+"""Authenticated isolated installation matrix for the optional consumers."""
 
 from pathlib import Path
 import subprocess
@@ -62,7 +62,7 @@ class TestConsumerExtras(unittest.TestCase):
             run([sys.executable, "-m", "pip", "wheel", "--no-index", "--no-deps",
                  "--no-build-isolation", "--wheel-dir", str(root / "standard"), built["sdist"]])
             for builder, wheel in enumerate((Path(built["wheel"]), next((root / "standard").glob("*.whl")))):
-                for extras in ("material", "conversation-hub", "material,conversation-hub"):
+                for extras in ("material", "conversation-hub", "material,conversation-hub", "alm"):
                     with self.subTest(builder=builder, extras=extras):
                         environment = root / f"env-{builder}-{extras.replace(',', '-')}"
                         venv.EnvBuilder(with_pip=True).create(environment)
@@ -71,10 +71,12 @@ class TestConsumerExtras(unittest.TestCase):
                         run([str(python), "-m", "pip", "check"])
                         material = "material" in extras
                         hub = "conversation-hub" in extras
+                        alm = "alm" in extras
                         script = (
                             "import importlib.util,json,sys,unittest; from importlib.metadata import distribution; "
                             f"assert (importlib.util.find_spec('material_core') is not None)=={material}; "
                             f"assert (importlib.util.find_spec('conversation_hub') is not None)=={hub}; "
+                            f"assert (importlib.util.find_spec('alm_lifecycle') is not None)=={alm}; "
                             f"sys.path.insert(0,{str(tests)!r}); "
                         )
                         if material:
@@ -107,6 +109,22 @@ class TestConsumerExtras(unittest.TestCase):
                                 "\ntry: _configured_snapshot_reader()\n"
                                 "except ConversationLibraryError as e: assert e.code=='hub_unavailable'\n"
                                 "else: raise AssertionError('missing hub accepted')\n"
+                            )
+                        if alm:
+                            script += (
+                                "from control_plane import alm_exchange; "
+                                "from control_plane.material_pins import ALM_COMMIT,ALM_VERSION; "
+                                "assert json.loads(distribution('alm-lifecycle-core').read_text('direct_url.json'))['vcs_info']['commit_id']==ALM_COMMIT; "
+                                "assert alm_exchange.require_alm_core().__version__==ALM_VERSION; "
+                                "suite=unittest.defaultTestLoader.loadTestsFromName('test_alm_exchange'); "
+                                "assert unittest.TextTestRunner().run(suite).wasSuccessful(); "
+                            )
+                        else:
+                            script += (
+                                "from control_plane import alm_exchange; "
+                                "\ntry: alm_exchange.require_alm_core()\n"
+                                "except alm_exchange.AlmExchangeError as e: assert e.code=='capability_missing'\n"
+                                "else: raise AssertionError('missing alm core accepted')\n"
                             )
                         run([str(python), "-I", "-c", script])
 
