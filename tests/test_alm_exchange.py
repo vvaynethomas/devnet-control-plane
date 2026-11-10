@@ -239,6 +239,36 @@ class AlmLedgerInspectionTests(unittest.TestCase):
         self.assertEqual(failed["coverage"]["alm_ledgers"], {"registered": 1, "read": 0, "failed": 1})
         self.assertTrue(any("could not be read (unavailable)" in warning for warning in failed["warnings"]))
 
+    def test_capabilities_tab_panel_lists_escaped_components_without_content(self) -> None:
+        from types import SimpleNamespace
+        from control_plane.ui import ControlPlaneWorkbench
+        data = self.root / "data"
+        workbench = SimpleNamespace(data_dir=data)
+        panel = ControlPlaneWorkbench.render_alm_components_panel
+        self.assertIn("No ALM ledger is registered", panel(workbench, "triage"))
+        self.assertFalse(data.exists())
+        hostile = self.component("skill.hostile", "skill", "skills/x.md", "Body.\n")
+        hostile = CORE.seal({**{k: v for k, v in hostile.items() if k != "revision"},
+                             "origin": {**hostile["origin"], "repository": "synthetic/<b>x</b>"}})
+        manifest = self.write(self.records + [hostile], "hostile.json")
+        alm_exchange.register_ledger(data, manifest, self.workspace)
+        (self.workspace / "skills" / "triage.md").write_text("changed", encoding="utf-8")
+        html = panel(workbench, "")
+        self.assertIn("showing 4 of 4 matching", html)
+        self.assertIn("alm:skill.triage@1.0.0", html)
+        self.assertIn("1 with drift", html)
+        self.assertIn('badge-warn">changed', html)
+        self.assertIn("synthetic/&lt;b&gt;x&lt;/b&gt;", html)
+        self.assertNotIn("<b>x", html)
+        self.assertNotIn(PRIVATE, html)
+        self.assertIn("unevaluated", html)
+        self.assertIn("showing 1 of 1", panel(workbench, "reviewer"))
+        self.assertIn("No recorded component matches", panel(workbench, "absentterm"))
+        manifest.write_text("not json", encoding="utf-8")
+        self.assertIn("ledger_invalid", panel(workbench, ""))
+        (data / "alm_ledgers.json").write_text("{}", encoding="utf-8")
+        self.assertIn("registrations_invalid", panel(workbench, ""))
+
     def test_cli_registers_lists_and_disables(self) -> None:
         data = self.root / "data"
 
