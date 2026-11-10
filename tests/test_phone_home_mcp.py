@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import test_phone_home as fixtures
 from test_operational_handoffs import example_packet, example_result
+from test_precedents import precedent_records
 
 
 class TestPhoneHomeMCP(unittest.TestCase):
@@ -35,13 +36,26 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     self.assertEqual({t.name for t in tools.tools}, {
                         "phone_home_check", "phone_home_submit", "phone_home_list", "phone_home_get",
                         "handoff_submit", "handoff_result", "handoff_get", "handoff_list",
-                        "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric", "devnet_get_context_handoff",
+                        "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric",
+                        "devnet_find_precedents", "devnet_inspect_precedent", "devnet_get_context_handoff",
                     })
                     await session.send_ping()
                     checked = await session.call_tool("phone_home_check", {"query": "sqlite"})
                     self.assertFalse(checked.isError)
                     output = checked.structuredContent
                     self.assertEqual(output["decision_ladder"], self.service.check("sqlite")["decision_ladder"])
+                    precedent_data = precedent_records()
+                    found = await session.call_tool("devnet_find_precedents", {
+                        "query": "avoid partial network write invalid UTF-8 streaming CSV",
+                        "records": precedent_data,
+                    })
+                    self.assertFalse(found.isError)
+                    self.assertEqual(found.structuredContent["results"][0]["implementation"]["revision"], "commit-a")
+                    inspected = await session.call_tool("devnet_inspect_precedent", {
+                        "implementation_id": "csv-reader", "records": precedent_data,
+                    })
+                    self.assertFalse(inspected.isError)
+                    self.assertEqual(len(inspected.structuredContent["variants"]), 2)
                     submitted = await session.call_tool("phone_home_submit", self.payload)
                     self.assertFalse(submitted.isError)
                     receipt = submitted.structuredContent

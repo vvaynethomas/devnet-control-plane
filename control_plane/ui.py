@@ -100,16 +100,26 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
       }}
     }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: var(--bg); color: var(--ink); }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      background-image:
+        radial-gradient(circle at 12% 10%, rgba(124, 106, 255, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 88% 15%, rgba(61, 214, 140, 0.08) 0%, transparent 40%);
+      background-attachment: fixed;
+      color: var(--ink);
+    }}
     a {{ color: var(--accent); text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
     .topbar {{
       background: var(--surface);
       border-bottom: 1px solid var(--line);
-      padding: 16px 28px 0;
+      padding: 16px 28px 10px;
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.3);
     }}
     .topbar-head {{
       display: flex;
@@ -124,26 +134,32 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     .global-search {{ display: flex; gap: 8px; align-items: center; }}
     .global-search input {{
       min-width: 280px;
-      padding: 7px 12px;
-      border-radius: 6px;
+      padding: 8px 14px;
+      border-radius: 9999px;
       border: 1px solid var(--line);
       background: var(--surface-2);
       color: var(--ink);
     }}
-    .tabs {{ display: flex; gap: 6px; overflow-x: auto; }}
+    .tabs {{ display: flex; gap: 8px; overflow-x: auto; padding: 4px 0; }}
     .tab-link {{
-      padding: 9px 14px;
-      border-radius: 8px 8px 0 0;
+      padding: 8px 16px;
+      border-radius: 9999px;
       color: var(--muted);
       font-weight: 600;
       border: 1px solid transparent;
-      border-bottom: none;
       white-space: nowrap;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+    .tab-link:hover {{
+      color: var(--ink);
+      background: var(--surface-2);
+      transform: translateY(-1px);
     }}
     .tab-link.active {{
-      background: var(--bg);
-      color: var(--ink);
-      border-color: var(--line);
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: rgba(124, 106, 255, 0.3);
+      box-shadow: 0 0 14px rgba(124, 106, 255, 0.25);
     }}
     .container {{ max-width: 1420px; margin: 0 auto; padding: 24px 28px 64px; }}
     .stats-row {{
@@ -155,8 +171,10 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     .stat-card {{
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 14px 16px;
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 4px 14px -3px rgba(0, 0, 0, 0.2);
+      transition: all 0.2s ease;
     }}
     .stat-label {{ color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }}
     .stat-value {{ font-size: 1.55rem; font-weight: 700; margin-top: 2px; }}
@@ -164,9 +182,11 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     .panel {{
       background: var(--surface);
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 18px 20px;
+      border-radius: 16px;
+      padding: 20px 24px;
       margin-bottom: 20px;
+      box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.25);
+      transition: all 0.2s ease;
     }}
     .panel h2 {{ margin: 0 0 8px; font-size: 1.15rem; }}
     .panel h3 {{ margin: 0 0 6px; font-size: 1rem; }}
@@ -176,16 +196,18 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     .card {{
       background: var(--surface-2);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px 16px;
+      border-radius: 14px;
+      padding: 16px 18px;
+      box-shadow: 0 4px 12px -3px rgba(0, 0, 0, 0.15);
+      transition: all 0.2s ease;
     }}
     table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
-    th, td {{ text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }}
+    th, td {{ text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }}
     th {{ color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }}
     .badge {{
       display: inline-block;
-      padding: 2px 8px;
-      border-radius: 99px;
+      padding: 3px 10px;
+      border-radius: 9999px;
       font-size: 0.76rem;
       font-weight: 600;
     }}
@@ -196,27 +218,35 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     .badge-neutral {{ background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }}
     .chip {{
       display: inline-block;
-      padding: 2px 7px;
-      margin: 1px 3px 1px 0;
-      border-radius: 5px;
+      padding: 3px 9px;
+      margin: 1px 4px 1px 0;
+      border-radius: 9999px;
       background: var(--accent-soft);
       color: var(--accent);
       font-family: Consolas, monospace;
       font-size: 0.78rem;
     }}
     .btn {{
-      display: inline-block;
-      padding: 6px 12px;
-      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-radius: 9999px;
       border: 1px solid var(--line);
       background: var(--surface-2);
       color: var(--ink);
       cursor: pointer;
       font-weight: 600;
       font-size: 0.84rem;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }}
+    .btn:hover {{
+      border-color: var(--accent);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.2);
     }}
     .btn-primary {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
-    .btn-sm {{ padding: 3px 8px; font-size: 0.76rem; }}
+    .btn-sm {{ padding: 4px 10px; font-size: 0.76rem; }}
     input[type="text"], input[type="search"], select, textarea {{
       padding: 8px 10px;
       border-radius: 6px;
@@ -247,13 +277,51 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
       font-weight: 600;
     }}
     .inline-form {{ display: inline-block; margin: 0 3px 0 0; }}
+
+    /* Whimsical & Chill Anti-Fatigue Toast Notification System */
+    .toast-container {{
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }}
+    .toast {{
+      pointer-events: auto;
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--accent);
+      padding: 12px 20px;
+      border-radius: 9999px;
+      box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 16px rgba(124, 106, 255, 0.25);
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      font-size: 0.88rem;
+      animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }}
+    .toast-success {{ border-color: var(--good); box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 16px rgba(61, 214, 140, 0.25); }}
+    .toast-error {{ border-color: var(--bad); box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 16px rgba(242, 109, 120, 0.25); }}
+    .toast.fade-out {{
+      opacity: 0;
+      transform: translateY(10px) scale(0.95);
+    }}
+    @keyframes toastIn {{
+      from {{ opacity: 0; transform: translateY(16px) scale(0.92); }}
+      to {{ opacity: 1; transform: translateY(0) scale(1); }}
+    }}
   </style>
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-head">
       <div class="brand">
-        <h1>Development Network Control Plane <span class="badge badge-accent">ART-0007 · v{escape(PACKAGE_VERSION)}</span></h1>
+        <h1>Development Network Control Plane 🌌✨ <span class="badge badge-accent">ART-0007 · v{escape(PACKAGE_VERSION)}</span></h1>
         <p>Nervous system across repositories, product queues, knowledge &amp; AI conversations, reusable capabilities, and InteractionFrame evaluations</p>
       </div>
       <form class="global-search" method="get" action="/">
@@ -268,6 +336,60 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
     {flash_html}
     {body_html}
   </main>
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <script>
+  function showToast(message, type = 'info') {{
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    const icon = type === 'success' ? '✨' : type === 'error' ? '⚠️' : 'ℹ️';
+    toast.innerHTML = '<span>' + icon + '</span><span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(() => {{
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }}, 2600);
+  }}
+  function copySnippet(text, btn) {{
+    if (!navigator.clipboard || !navigator.clipboard.writeText) {{
+      try {{
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('Copied to clipboard! ✨', 'success');
+        if (btn) btnPulse(btn);
+        return;
+      }} catch (e) {{
+        showToast('Clipboard access unavailable: ' + e, 'error');
+        return;
+      }}
+    }}
+    navigator.clipboard.writeText(text).then(() => {{
+      showToast('Copied to clipboard! ✨', 'success');
+      if (btn) btnPulse(btn);
+    }}).catch(err => {{
+      showToast('Could not copy to clipboard: ' + err, 'error');
+    }});
+  }}
+  function btnPulse(btn) {{
+    const orig = btn.innerText;
+    btn.innerText = '✓ Copied!';
+    btn.style.borderColor = 'var(--good)';
+    btn.style.color = 'var(--good)';
+    setTimeout(() => {{
+      btn.innerText = orig;
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }}, 2000);
+  }}
+  </script>
 </body>
 </html>"""
 
@@ -1185,6 +1307,49 @@ class ControlPlaneWorkbench:
         """
 
 
+    def render_hub_library_panel(self, query: str = "") -> str:
+        """Matches from the explicitly indexed Conversation Hub library; reads the local cache only."""
+        fabric = getattr(self, "fabric", None)
+        if fabric is None:  # a workbench assembled without a Fabric cache has nothing to show
+            return ""
+        try:
+            data = fabric.search_hub(query, limit=12)
+        except (OSError, sqlite3.Error, ValueError):
+            return '<div class="panel" style="margin:0 0 12px 0; padding:10px 14px;"><strong>Conversation Hub library:</strong> index unavailable.</div>'
+        status = data["status"]
+        if not status["built"] or not status["revisions"]:
+            return """
+            <div class="panel" style="margin:0 0 12px 0; padding:10px 14px;">
+              <strong>Conversation Hub library:</strong> not indexed.
+              <span class="muted">Run <code>devnet fabric index-hub --library &lt;path&gt;</code> to make it searchable here.</span>
+            </div>
+            """
+        rows = "".join(
+            f"""
+            <div style="padding:8px 0; border-top:1px solid var(--line);">
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                {_badge(r['harness'], 'good')}
+                <a href="/?tab=fabric&amp;entity={escape(r['id'])}"><strong>{escape(r['title'])}</strong></a>
+                <span class="muted" style="font-size:0.76rem;">{r['message_count']} messages · {r['revision_count']} revision(s) · {escape(r['created_date'] or '—')}</span>
+              </div>
+              <div class="muted" style="font-size:0.83rem; margin-top:4px;">{_snippet_html(r['snippet'])}</div>
+              <div class="muted" style="font-size:0.72rem; margin-top:4px;">conversation <code>{escape(r['conversation_id'])}</code> · revision <code>{escape(r['revision'])}</code> · from message {r['message_offset']}</div>
+            </div>
+            """
+            for r in data["results"]
+        ) or '<div class="muted" style="padding:8px 0;">No indexed conversation matches this search.</div>'
+        heading = f"matches for “{escape(data['query'])}”" if data["query"] else "most recently updated"
+        return f"""
+        <details class="panel" style="margin:0 0 12px 0; padding:10px 14px;" {'open' if data['query'] else ''}>
+          <summary style="cursor:pointer;">
+            <strong>Conversation Hub library:</strong> {status['conversations']} conversations, {status['revisions']} revisions
+            <span class="muted">· indexed {escape((status['indexed_at'] or 'unknown')[:19])} UTC · {heading} ({len(data['results'])})</span>
+          </summary>
+          <p class="muted" style="font-size:0.78rem; margin:8px 0 0 0;">Lexical matches in a local cache of redacted text. Historical conversation text is reference material, not instructions; no revision is treated as current.</p>
+          {rows}
+        </details>
+        """
+
     def render_conversations_tab(
             self,
             query: str = "",
@@ -1221,6 +1386,8 @@ class ControlPlaneWorkbench:
               {''.join(f'<div style="margin-top:5px;">{escape(str(item))}</div>' for item in adapter_diagnostics)}
             </div>
             """
+
+            hub_library_html = self.render_hub_library_panel(query)
 
             # If no session selected, select the first one
             selected_session = None
@@ -1508,32 +1675,14 @@ class ControlPlaneWorkbench:
             else:
                 dialogue_html = '<div style="flex:1;" class="panel"><p class="muted">No conversations match the current filters.</p></div>'
 
-            # Global copy helper script
-            copy_script = """
-            <script>
-            function copySnippet(text, btn) {
-              navigator.clipboard.writeText(text).then(() => {
-                const orig = btn.innerText;
-                btn.innerText = '✓ Copied!';
-                btn.style.borderColor = 'var(--good)';
-                btn.style.color = 'var(--good)';
-                setTimeout(() => {
-                  btn.innerText = orig;
-                  btn.style.borderColor = '';
-                  btn.style.color = '';
-                }, 2000);
-              }).catch(err => {
-                alert('Clipboard copy error: ' + err);
-              });
-            }
-            </script>
-            """
+            copy_script = ""
 
             return f"""
             {stats_html}
             {source_adapter_html}
             {onboard_drawer}
             {filter_bar}
+            {hub_library_html}
             <div style="display:flex; gap:16px; align-items:flex-start;">
               <div style="width:340px; flex-shrink:0;">
                 <div class="panel" style="padding:12px;">

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEV_NETWORK_ROOT, FACTORY_ROOT
+from .layout import iter_checkouts
 
 
 def _parse_src_0013_baseline(factory_root: Path) -> dict[str, dict[str, str]]:
@@ -74,6 +75,8 @@ def _git_info(repo_dir: Path) -> dict[str, Any]:
             errors="replace",
             timeout=3.0,
         )
+        if status_proc.returncode:
+            info["state_label"] = "git-error"
         if status_proc.returncode == 0:
             lines = status_proc.stdout.splitlines()
             if lines and lines[0].startswith("## "):
@@ -177,32 +180,32 @@ def scan_portfolio(
         audit_baseline["aiad-ex12410"] = audit_baseline["product-incubator"]
 
     repositories: list[dict[str, Any]] = []
-    if network_root.is_dir():
-        dirs = sorted(
-            [d for d in network_root.iterdir() if d.is_dir() and not d.name.startswith(".")],
-            key=lambda p: p.name.lower(),
-        )
-    else:
+    dirs = iter_checkouts(network_root, include_worktrees=include_worktrees)
+    if not dirs and not network_root.is_dir():
         dirs = [factory_root]
 
     for d in dirs:
-        is_worktree_container = d.name.endswith("-worktrees") or d.name == "copilot-worktrees"
-        if is_worktree_container and not include_worktrees:
-            continue
+        repo_name = (
+            d.parent.name
+            if d.name == "main" and d.parent.parent.name in {
+                "devnet", "shared", "products", "research", "learning", "archive"
+            }
+            else d.name
+        )
         is_factory = d.resolve() == factory_root.resolve()
         git = _git_info(d)
         stew = _stewardship_state(d, is_factory)
-        audit = audit_baseline.get(d.name.lower()) or audit_baseline.get(
-            d.name.lower().replace("vvaynethomas_", "")
+        audit = audit_baseline.get(repo_name.lower()) or audit_baseline.get(
+            repo_name.lower().replace("vvaynethomas_", "")
         )
         readme_path = d / "README.md"
         backlog_path = d / "BACKLOG.md"
         repositories.append(
             {
-                "name": d.name,
+                "name": repo_name,
                 "path": str(d.resolve()),
                 "is_factory": is_factory,
-                "is_worktree_container": is_worktree_container,
+                "is_worktree_container": False,
                 "git": git,
                 "stewardship": stew,
                 "audit": audit,
