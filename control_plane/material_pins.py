@@ -1,9 +1,9 @@
 """Independently verified private producer release identities."""
 
-CORE_VERSION = "0.1.1rc2"
-CORE_COMMIT = "31d0661fae0a89f80290d8e645a6872431cd6dd6"
+CORE_VERSION = "0.2.0rc1"
+CORE_COMMIT = "331a3cbe8522592fa8a70d3d3bf0973b95a7d729"
 CORE_URL = "https://github.com/vvaynethomas/material-core"
-CORE_WHEEL_SHA256 = "c127e5529e2611da463dca683d0dd189e3fdcf7da6908427873fc7baf4a5dc47"
+CORE_WHEEL_SHA256 = "988d93aadc4001f7b73c5f76285ccae3fcca25a66c28ea22f820055ef087edc8"
 UTILITY_VERSION = "0.1.0rc2"
 UTILITY_COMMIT = "4e2a06146944b438f10525ef45c44cc101b417b5"
 UTILITY_URL = "https://github.com/vvaynethomas/utility-chest"

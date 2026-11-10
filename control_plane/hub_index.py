@@ -14,15 +14,15 @@ from pathlib import Path
 import re
 import sqlite3
 import time
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 
 from .conversation_library import APPLICATION_ID, SCHEMA_VERSION, ConversationLibraryError
-from .safety import SECRET_RE
+from .material_capability import require_material_core
 
 READ_BUSY_TIMEOUT_SECONDS = 1.0
 CHUNK_CHARS = 8_000
 TITLE_CHARS = 90
-INDEX_FORMAT = 1
+INDEX_FORMAT = 2  # 2: segments come from material-core's conversation segmenter
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ROLES = {"user", "assistant", "system", "tool", "unknown"}
 LIBRARY_TABLES = {
@@ -41,10 +41,6 @@ def _incompatible() -> None:
     raise ConversationLibraryError(
         "schema_incompatible", "Library does not match the pinned PRJ-0006 version-1 contract.",
     )
-
-
-def _redact(text: str) -> str:
-    return SECRET_RE.sub("[REDACTED_SECRET]", text)
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -123,44 +119,7 @@ def _open_library(library: Path) -> sqlite3.Connection:
     return connection
 
 
-def _pieces(text: str, size: int) -> Iterator[str]:
-    """Split one long message near whitespace so no chunk greatly exceeds the budget."""
-    start = 0
-    while len(text) - start > size:
-        end = start + size
-        space = text.rfind(" ", start + size // 2, end)
-        if space > start:
-            end = space
-        yield text[start:end]
-        start = end
-    yield text[start:]
-
-
-def chunk_messages(messages: Iterable[tuple[int, str, str]], size: int = CHUNK_CHARS) -> Iterator[tuple[int, int, str]]:
-    """Group ordered (position, role, content) messages into (first, last, body) chunks.
-
-    This is the seam for a shared extractor: anything yielding the same triples can feed
-    the index without changing its storage or search.
-    """
-    parts: list[str] = []
-    used = 0
-    first = last = -1
-    for position, role, content in messages:
-        for piece in _pieces(content, size):
-            text = f"{role}: {piece}"
-            if parts and used + len(text) > size:
-                yield first, last, "\n\n".join(parts)
-                parts, used = [], 0
-            if not parts:
-                first = position
-            parts.append(text)
-            used += len(text) + 2
-            last = position
-    if parts:
-        yield first, last, "\n\n".join(parts)
-
-
-def _read_revision(source: sqlite3.Connection, conversation_id: str, revision: str) -> tuple[dict[str, Any], list[tuple[int, int, str]]]:
+def _read_revision(source: sqlite3.Connection, core: Any, conversation_id: str, revision: str) -> tuple[dict[str, Any], list[tuple[int, int, str]]]:
     key = (conversation_id, revision)
     # Observations of one revision carry the same normalized session; the first locator is enough.
     locator = source.execute(
@@ -201,18 +160,22 @@ def _read_revision(source: sqlite3.Connection, conversation_id: str, revision: s
             if type(position) is not int or position <= previous or role not in ROLES or not isinstance(content, str):
                 _incompatible()
             previous = position
-            content = _redact(content)
             if not count:
-                first_text = content
+                first_text = core.redact_text(content)  # redact before the title is cut from it
             count += 1
             yield position, role, content
 
-    chunks = list(chunk_messages(messages()))
+    try:
+        # Segmentation and redaction belong to the shared, pinned Material Core.
+        chunks = [(segment.first_position, segment.last_position, segment.text)
+                  for segment in core.segment_messages(messages(), size=CHUNK_CHARS)]
+    except core.MaterialError:
+        _incompatible()
     derived = not isinstance(title, str) or not title.strip()
     if derived:
         title = " ".join(first_text.split())[:TITLE_CHARS] or "(untitled conversation)"
     return {
-        "platform": platform, "title": _redact(title), "title_is_derived": int(derived),
+        "platform": platform, "title": core.redact_text(title), "title_is_derived": int(derived),
         "created_at": created_at or "", "updated_at": updated_at or created_at or "",
         "message_count": count,
     }, chunks
@@ -222,8 +185,10 @@ def index_library(fabric_db: Path, library: Path) -> dict[str, Any]:
     """Bring the Hub tables in line with the library: add new revisions, drop vanished ones.
 
     Each revision is committed on its own, so an interrupted run resumes where it stopped.
-    The result holds counts and timings only.
+    The result holds counts and timings only. Requires the optional `material` extra:
+    there is no local fallback segmenter.
     """
+    core = require_material_core()
     started = time.perf_counter()
     fabric_db.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -248,7 +213,7 @@ def index_library(fabric_db: Path, library: Path) -> dict[str, Any]:
                 present.add((conversation_id, revision))
             indexed = set(target.execute("SELECT conversation_id, revision FROM hub_revisions"))
             for conversation_id, revision in sorted(present - indexed):
-                meta, chunks = _read_revision(source, conversation_id, revision)
+                meta, chunks = _read_revision(source, core, conversation_id, revision)
                 target.execute(
                     "INSERT INTO hub_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (conversation_id, revision, meta["platform"], meta["title"], meta["title_is_derived"],
@@ -283,6 +248,7 @@ def index_library(fabric_db: Path, library: Path) -> dict[str, Any]:
         "revisions_unchanged": totals["revisions"] - added,
         "chunks_added": chunks_written, "characters_added": chars_written,
         "index": totals,
+        "segmenter": {"package": "material-core", "version": core.__version__},
         "seconds": round(time.perf_counter() - started, 2),
         "diagnostics": [
             "Only redacted message text, opaque identities and source metadata are cached; raw exports are not copied.",

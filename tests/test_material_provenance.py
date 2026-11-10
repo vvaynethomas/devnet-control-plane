@@ -195,6 +195,7 @@ class TestMaterialProvenance(unittest.TestCase):
                 ),
                 "contract.py": "from .nested import MATERIAL_VALUE\nVALUE = MATERIAL_VALUE\n",
                 "nested.py": "MATERIAL_VALUE = 'captured-core-source'\n",
+                "conversation.py": "from .contract import VALUE\n",
                 "safety.py": "from credential_patterns import SECRET_RE\n",
                 "supplied.py": "from .contract import VALUE\n",
             }
@@ -260,6 +261,7 @@ class TestMaterialProvenance(unittest.TestCase):
             core_contents = {
                 "__init__.py": f"__version__ = {CORE_VERSION!r}\n".encode(),
                 "contract.py": b"EXPECTED_CORE_SOURCE = True\n",
+                "conversation.py": b"",
                 "safety.py": b"",
                 "supplied.py": b"",
             }

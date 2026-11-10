@@ -9,11 +9,20 @@ import sqlite3
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from control_plane import hub_index
 from control_plane.cli import main
 from control_plane.conversation_library import APPLICATION_ID, ConversationLibraryError
 from control_plane.fabric import FabricIndex
+from control_plane.material_capability import MaterialCapabilityError, require_material_core
+from control_plane.material_pins import CORE_VERSION
+
+try:
+    require_material_core()
+    HAS_CORE = True
+except MaterialCapabilityError:
+    HAS_CORE = False
 
 
 def digest(text: str) -> str:
@@ -39,6 +48,22 @@ def record(name: str, messages: list[tuple[str, str]], *, revision: str = "r1", 
     }
 
 
+class HubIndexWithoutCoreTests(unittest.TestCase):
+    def test_indexing_without_the_material_extra_fails_before_touching_anything(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fabric = FabricIndex(db_path=root / "data" / "fabric.db", factory_root=root / "factory")
+            error = io.StringIO()
+            with patch("control_plane.hub_index.require_material_core",
+                       side_effect=MaterialCapabilityError("Material capability is not installed.")), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(error):
+                with self.assertRaises(MaterialCapabilityError):
+                    fabric.index_hub(root / "library.sqlite")
+            self.assertFalse(fabric.db_path.exists())
+            self.assertEqual(fabric.search_hub("anything")["results"], [])
+
+
+@unittest.skipUnless(HAS_CORE, "Requires the optional pinned material distribution for segmentation")
 class HubIndexTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -159,9 +184,10 @@ class HubIndexTests(unittest.TestCase):
         self.add(item)
         result = self.fabric.index_hub(self.library)
         self.assertGreater(result["chunks_added"], 4)
+        self.assertEqual(result["segmenter"], {"package": "material-core", "version": CORE_VERSION})
         with closing(sqlite3.connect(self.fabric.db_path)) as connection:
             longest = connection.execute("SELECT MAX(LENGTH(body)) FROM hub_chunks_fts").fetchone()[0]
-        self.assertLessEqual(longest, hub_index.CHUNK_CHARS + 16)
+        self.assertLessEqual(longest, hub_index.CHUNK_CHARS)
         self.assertLess(self.fabric.db_path.stat().st_size, 1024 * 1024)
         hit = self.search("pangolin")[0]
         self.assertLessEqual(hit["message_offset"], 6)

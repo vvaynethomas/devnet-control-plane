@@ -2,20 +2,20 @@
 
 The independent private repository is
 [vvaynethomas/material-core](https://github.com/vvaynethomas/material-core).
-[Release v0.1.1rc2](https://github.com/vvaynethomas/material-core/releases/tag/v0.1.1rc2)
-points to `31d0661fae0a89f80290d8e645a6872431cd6dd6`. DNCP's standard metadata
+[Release v0.2.0rc1](https://github.com/vvaynethomas/material-core/releases/tag/v0.2.0rc1)
+points to `331a3cbe8522592fa8a70d3d3bf0973b95a7d729`. DNCP's standard metadata
 and custom wheel metadata expose the immutable direct requirement only in the
 optional `material` extra:
 
 ```text
-material-core @ git+https://github.com/vvaynethomas/material-core@31d0661fae0a89f80290d8e645a6872431cd6dd6
+material-core @ git+https://github.com/vvaynethomas/material-core@331a3cbe8522592fa8a70d3d3bf0973b95a7d729
 ```
 
 The repository contains only the Python package, standalone tests, package
 metadata, README and CHANGELOG. There is no DNCP registry, orchestration, UI,
 storage, discovery, or repository-scanning dependency. DNCP no longer includes
 the `material_core` sources; it retains its payload adapter and checks core
-version 0.1.1rc2 and recorded source provenance explicitly. The public base package has no runtime dependencies
+version 0.2.0rc1 and recorded source provenance explicitly. The public base package has no runtime dependencies
 and needs no private credentials. Fabric credential filtering and MCP schema
 description are DNCP-owned and independent of Material Core. Fabric can use
 the separately versioned Utility Chest primitive through the optional
@@ -65,11 +65,11 @@ incompatible versions fail explicitly; there is no local-source fallback.
 ## Explicit fetch, then offline build/install
 
 `build_material_core.py` is retained as a compatible command name but now only
-downloads the producer's published v0.1.1rc2 and Utility Chest v0.1.0rc2 wheels,
+downloads the producer's published v0.2.0rc1 and Utility Chest v0.1.0rc2 wheels,
 never clones or rebuilds either
 product. It requires authenticated GitHub access for this explicit fetch.
 The independently pinned release wheel SHA-256 is
-`c127e5529e2611da463dca683d0dd189e3fdcf7da6908427873fc7baf4a5dc47`; its
+`988d93aadc4001f7b73c5f76285ccae3fcca25a66c28ea22f820055ef087edc8`; its
 transitive Utility Chest commit is `4e2a06146944b438f10525ef45c44cc101b417b5`,
 wheel SHA-256
 `56ec8356007403ddf23a36bf17b06c0319dfb196fb0fd045995524d68a49e119`.
@@ -78,9 +78,9 @@ manifest cannot authorize another wheel with the same name/version.
 
 ```powershell
 python build_material_core.py --output-dir dist\material-core
-python release.py --material-core-wheel dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
+python release.py --material-core-wheel dist\material-core\material_core-0.2.0rc1-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
 python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir dist\devnet-standard dist\devnet\devnet_control_plane-0.1.0.tar.gz
-python install_material_core.py dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
+python install_material_core.py dist\material-core\material_core-0.2.0rc1-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
 python -m pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
 python -m pip check
 ```

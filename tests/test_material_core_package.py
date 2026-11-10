@@ -35,7 +35,7 @@ class TestMaterialCorePackage(unittest.TestCase):
                     f"material_core-{release.MATERIAL_CORE_VERSION}.dist-info/METADATA",
                     f"Metadata-Version: 2.1\nName: material-core\nVersion: {release.MATERIAL_CORE_VERSION}\n",
                 )
-                for name in ("__init__", "contract", "safety", "supplied"):
+                for name in ("__init__", "contract", "conversation", "safety", "supplied"):
                     archive.writestr(f"material_core/{name}.py", "raise AssertionError('substituted code')")
             (root / "RELEASE_MANIFEST.json").write_text(json.dumps({
                 "source_commit": release.MATERIAL_CORE_COMMIT,
