@@ -1,4 +1,4 @@
-# ALM lifecycle ledger consumer (DNCP-012, first slice)
+# ALM lifecycle ledger consumer (DNCP-012)
 
 DNCP can validate and list an explicitly selected ALM lifecycle ledger. This is a
 read-only consumer boundary: nothing is imported into DNCP, copied into an agent's
@@ -63,6 +63,43 @@ public base package is unchanged and still has no runtime dependencies.
   paths. Errors are JSON on stderr with a `code` and never echo file content or the
   supplied path.
 
+## Registered ledgers in the reuse check
+
+```powershell
+devnet alm register --manifest <ledger.json> --root <checkout>
+devnet alm list
+devnet alm disable --manifest <ledger.json>
+```
+
+`register` validates the ledger, then stores its absolute path, the optional checkout
+root, an enabled flag and a timestamp in `alm_ledgers.json` in the DNCP data directory
+(at most 20 ledgers). It copies nothing from the ledger. Re-registering a path replaces
+its entry; `disable` keeps the entry but stops reading it.
+
+`phone_home_check` (CLI, Python and MCP) then adds `alm_ledger_components`: components
+of every enabled ledger whose ID, kind, origin, file paths or **file content** match the
+query, ranked like other capabilities (ID matches weigh more). Content is matched but
+never returned. Each item has its ID, kind, version, revision, a reference
+`alm:<id>@<version>`, origin, pinned dependencies, the ledger's digest and path, and
+`trusted: false`.
+
+- **No cache.** Ledgers are read and validated on every check. A ledger that fails
+  (missing, invalid, or the extra absent) is reported in `warnings` and
+  `coverage.alm_ledgers` and does not hide the others.
+- **Drift.** With a registered root, each recorded file digest is compared with the file
+  under it and reported per file as `match`, `changed` or `missing`
+  (`not_compared` without a root). Unlike `inspect --root`, drift here does not fail the
+  ledger; the component is still listed with `workspace_drift: true` and a warning.
+- **Not ladder evidence.** These components are listed apart from the decision ladder
+  and do not change its recommendation or `stopped_at`, because nothing in a ledger has
+  been evaluated or approved. A human reads them alongside the ladder.
+- With nothing registered the check is unchanged apart from an empty list and zero
+  counts, and the `alm` extra is not needed.
+
+Comparison with the incubator's cockpit skill and prompt registries was considered and
+left out: on 2026-11-10 the two existing candidate ledgers shared no file, by content
+or by meaningful name, with the 14 cockpit entries, so there was nothing real to compare.
+
 ## Trust boundary
 
 A valid ledger is structurally consistent, nothing more. Evaluations, reviews and
@@ -75,7 +112,9 @@ only; nothing is written anywhere.
 
 `python -m unittest tests.test_alm_exchange -v` covers a synthetic ledger built with the
 pinned core: listing without content, filters, root drift, tampered, dangling, malformed
-and oversized ledgers, the missing or unverified core refusal and CLI output. Tests that
+and oversized ledgers, the missing or unverified core refusal and CLI output, plus
+registration, per-file drift, a failing ledger beside a readable one, content matching
+without content output, and the reuse check leaving the decision ladder unchanged. Tests that
 need the core skip when the extra is absent.
 
 On 2026-11-10 two existing candidate ledgers (Conversation Hub and its producer, 14
@@ -84,8 +123,10 @@ against its own checkout with no drift. Neither holds a release, so the readines
 is **not exercised** by a real or synthetic ledger. The isolated install matrix
 (`test_consumer_extras.py`) was not extended to this extra.
 
-Still open under DNCP-012: surfacing named ledgers in capability discovery and the reuse
-check with drift detection against the incubator's cockpit registries; citing component
-revisions from `handoff_prepare`; the offline wheel path. Copying skill or prompt files
+The operator's own data directory has no registered ledger; the reuse check was
+exercised against the two candidate ledgers through a temporary data directory only.
+
+Still open under DNCP-012: the workbench Capabilities tab does not show ledger
+components; citing component revisions from `handoff_prepare`; the offline wheel path. Copying skill or prompt files
 into DNCP or agent configuration is deliberately not planned. Priority (P3), ownership and
 acceptance are unchanged.

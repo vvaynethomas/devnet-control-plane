@@ -13,6 +13,7 @@ from unittest.mock import patch
 from control_plane import alm_exchange
 from control_plane.alm_exchange import AlmExchangeError, inspect_ledger
 from control_plane.cli import main
+from control_plane.phone_home import PhoneHome
 from control_plane.material_pins import ALM_COMMIT, ALM_VERSION
 
 try:
@@ -152,6 +153,107 @@ class AlmLedgerInspectionTests(unittest.TestCase):
         self.assertEqual((code, output.getvalue()), (1, ""))
         self.assertEqual(json.loads(error.getvalue())["code"], "unavailable")
         self.assertNotIn(str(self.root), error.getvalue())
+
+
+    def test_registered_ledgers_are_read_at_query_time_with_per_file_drift(self) -> None:
+        data = self.root / "data"
+        self.assertEqual(alm_exchange.ledger_components(data), {
+            "registered": 0, "enabled": 0, "ledgers": [], "total": 0, "components": [], "notice": alm_exchange.NOTICE})
+        self.assertFalse(data.exists())
+        receipt = alm_exchange.register_ledger(data, self.manifest, self.workspace)
+        self.assertEqual((receipt["ledger"]["entries"], receipt["trusted"]), (3, False))
+        self.assertEqual(sorted(p.name for p in data.iterdir()), ["alm_ledgers.json"])
+        stored = json.loads((data / "alm_ledgers.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(stored["ledgers"][0]), ["enabled", "manifest", "registered_at", "root"])
+        self.assertNotIn(PRIVATE, json.dumps(stored))
+        alm_exchange.register_ledger(data, self.manifest, self.workspace)  # re-registering replaces the entry
+        self.assertEqual(len(alm_exchange.list_ledgers(data)["ledgers"]), 1)
+
+        found = alm_exchange.ledger_components(data)
+        self.assertEqual([c["id"] for c in found["components"]], ["agent.reviewer", "prompt.review", "skill.triage"])
+        self.assertEqual(found["ledgers"][0]["components_with_drift"], 0)
+        skill = found["components"][2]
+        self.assertEqual((skill["ref"], skill["workspace_drift"], skill["trusted"], skill["category"]),
+                         ("alm:skill.triage@1.0.0", False, False, "alm_component"))
+        self.assertEqual(skill["files"][0]["workspace"], "match")
+        # Content is searchable but never returned.
+        by_content = alm_exchange.ledger_components(data, PRIVATE.lower())
+        self.assertEqual([c["id"] for c in by_content["components"]], ["skill.triage"])
+        self.assertNotIn(PRIVATE, json.dumps(by_content))
+        self.assertEqual([c["id"] for c in alm_exchange.ledger_components(data, "reviewer prompt")["components"]][0],
+                         "agent.reviewer")
+        self.assertEqual(alm_exchange.ledger_components(data, "absentterm")["components"], [])
+        self.assertEqual(len(alm_exchange.ledger_components(data, limit=1)["components"]), 1)
+
+        (self.workspace / "skills" / "triage.md").write_text("changed", encoding="utf-8")
+        (self.workspace / "prompts" / "review.md").unlink()
+        drifted = alm_exchange.ledger_components(data)
+        self.assertEqual(drifted["ledgers"][0]["components_with_drift"], 2)
+        self.assertEqual({c["id"]: c["files"][0]["workspace"] for c in drifted["components"]},
+                         {"agent.reviewer": "match", "prompt.review": "missing", "skill.triage": "changed"})
+
+        other = self.write([self.component("skill.other", "skill", "skills/other.md", "Other.\n")], "other.json")
+        alm_exchange.register_ledger(data, other)
+        self.manifest.write_text("not json", encoding="utf-8")
+        mixed = alm_exchange.ledger_components(data)
+        self.assertEqual([(l["status"], l.get("code")) for l in mixed["ledgers"]],
+                         [("failed", "ledger_invalid"), ("read", None)])
+        self.assertEqual([(c["id"], c["workspace_drift"], c["files"][0]["workspace"]) for c in mixed["components"]],
+                         [("skill.other", None, "not_compared")])
+        alm_exchange.disable_ledger(data, other)
+        self.assertEqual((alm_exchange.ledger_components(data)["enabled"], alm_exchange.ledger_components(data)["components"]),
+                         (1, []))
+        with self.assertRaises(AlmExchangeError) as caught:
+            alm_exchange.disable_ledger(data, self.root / "never.json")
+        self.assertEqual(caught.exception.code, "not_found")
+        with self.assertRaises(AlmExchangeError) as caught:
+            alm_exchange.register_ledger(data, self.manifest)
+        self.assertEqual(caught.exception.code, "ledger_invalid")
+        with self.assertRaises(AlmExchangeError) as caught:
+            alm_exchange.register_ledger(data, other, self.root / "absent-root")
+        self.assertEqual(caught.exception.code, "unavailable")
+        (data / "alm_ledgers.json").write_text("{}", encoding="utf-8")
+        with self.assertRaises(AlmExchangeError) as caught:
+            alm_exchange.ledger_components(data)
+        self.assertEqual(caught.exception.code, "registrations_invalid")
+
+    def test_reuse_check_lists_ledger_components_apart_from_the_ladder(self) -> None:
+        factory = self.root / "factory"
+        factory.mkdir()
+        service = PhoneHome(factory, self.root / "network", self.root / "runtime")
+        plain = service.check("triage reviewer")
+        self.assertEqual(plain["alm_ledger_components"], [])
+        self.assertEqual(plain["coverage"]["alm_ledgers"], {"registered": 0, "read": 0, "failed": 0})
+        self.assertFalse(any("ALM" in warning for warning in plain["warnings"]))
+        alm_exchange.register_ledger(service.data_dir, self.manifest, self.workspace)
+        (self.workspace / "skills" / "triage.md").write_text("changed", encoding="utf-8")
+        checked = service.check("triage reviewer")
+        self.assertEqual([c["id"] for c in checked["alm_ledger_components"]], ["agent.reviewer", "skill.triage"])
+        self.assertEqual(checked["coverage"]["alm_ledgers"], {"registered": 1, "read": 1, "failed": 0})
+        self.assertEqual(checked["decision_ladder"], {**plain["decision_ladder"]})
+        self.assertTrue(any("differ from the files" in warning for warning in checked["warnings"]))
+        self.assertTrue(any("not decision-ladder evidence" in warning for warning in checked["warnings"]))
+        self.assertNotIn(PRIVATE, json.dumps(checked))
+        self.manifest.unlink()
+        failed = service.check("triage")
+        self.assertEqual(failed["coverage"]["alm_ledgers"], {"registered": 1, "read": 0, "failed": 1})
+        self.assertTrue(any("could not be read (unavailable)" in warning for warning in failed["warnings"]))
+
+    def test_cli_registers_lists_and_disables(self) -> None:
+        data = self.root / "data"
+
+        def run(*arguments: str) -> tuple[int, dict]:
+            output, error = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(error):
+                code = main(["--data-dir", str(data), "alm", *arguments])
+            return code, json.loads(output.getvalue() or error.getvalue())
+
+        self.assertEqual(run("list"), (0, {"schema_version": 1, "ledgers": []}))
+        code, registered = run("register", "--manifest", str(self.manifest), "--root", str(self.workspace))
+        self.assertEqual((code, registered["registered"]["enabled"]), (0, True))
+        self.assertEqual(len(run("list")[1]["ledgers"]), 1)
+        self.assertEqual(run("disable", "--manifest", str(self.manifest))[1]["disabled"]["enabled"], False)
+        self.assertEqual(run("disable", "--manifest", str(self.root / "never.json"))[1]["code"], "not_found")
 
 
 if __name__ == "__main__":
