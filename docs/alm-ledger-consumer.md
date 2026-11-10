@@ -33,11 +33,26 @@ runtime dependencies. DNCP loads it the same way as Material Core: it checks the
 version and PEP 610 source commit, captures the distribution-owned sources and executes
 those bytes under a private namespace. DNCP contains no second validator.
 
-Only the authenticated Git install path is supported in this slice. The offline
-wheel-evidence installer used for Material Core has not been extended to this package, so
-a bare local wheel install is refused. PEP 610 is source provenance, not post-install
-byte-integrity verification; the wheel digest above is producer evidence that the running
-consumer does not enforce.
+There are two supported install paths:
+
+- **Authenticated Git** (`pip install "devnet-control-plane[alm]"`). PEP 610 is source
+  provenance, not post-install byte-integrity verification; on this path the wheel digest
+  above is producer evidence that the running consumer does not enforce.
+- **Offline, from the published wheel:**
+
+  ```powershell
+  python install_alm_core.py <dir>\alm_lifecycle_core-0.2.0a1-py3-none-any.whl
+  ```
+
+  The installer reads the wheel once, refuses it unless its name, SHA-256, metadata and
+  required modules match the pins (and it declares no runtime dependency), installs that
+  byte snapshot with `--no-index --no-deps` in an isolated pip environment, checks the
+  installed files against the wheel's hashes and writes the same
+  `dncp_material_provenance.json` evidence used for Material Core. At load time DNCP
+  checks the installed files against that evidence. It does not fetch the wheel; download
+  it yourself from the release above.
+
+A bare `pip install` of a local wheel, without that evidence, is still refused.
 
 Without the extra, or with another version or source, the command fails with
 `capability_missing` or `capability_unverified` (status 503) and install guidance. The
@@ -120,8 +135,15 @@ need the core skip when the extra is absent.
 On 2026-11-10 two existing candidate ledgers (Conversation Hub and its producer, 14
 entries each: 6 agents, 6 skills, 2 prompts) validated, and one validated with `--root`
 against its own checkout with no drift. Neither holds a release, so the readiness output
-is **not exercised** by a real or synthetic ledger. The isolated install matrix
-(`test_consumer_extras.py`) was not extended to this extra.
+is **not exercised** by a real or synthetic ledger.
+
+The isolated install matrix (`test_consumer_extras.py`, `DNCP_PRIVATE_INTEGRATION=1`)
+includes the `alm` extra for both wheel builders: the pinned commit is installed, the core
+loads and this module's tests pass in that environment, and environments without the
+extra report `capability_missing`. The offline path has a unit test for the wheel checks
+and an end-to-end test that runs only when `DNCP_ALM_WHEEL` points at the published
+wheel: the installer's result loads, while a bare wheel install and a file changed after
+installation are refused. Both gated tests passed on 2026-11-10.
 
 The operator's own data directory has no registered ledger; the reuse check was
 exercised against the two candidate ledgers through a temporary data directory only.
@@ -138,6 +160,6 @@ problem query and read at render time; `/api/alm-components?q=` returns the JSON
 section is read-only: registration stays on the CLI. It was tested by rendering against
 synthetic ledgers, not looked at in a browser.
 
-Still open under DNCP-012: the offline wheel path. Copying skill or prompt files
+Copying skill or prompt files
 into DNCP or agent configuration is deliberately not planned. Priority (P3), ownership and
 acceptance are unchanged.

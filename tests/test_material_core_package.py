@@ -51,6 +51,69 @@ class TestMaterialCorePackage(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "independently pinned producer release"):
             release.verify_utility_bytes(data, filename)
 
+    def test_alm_wheel_is_checked_against_its_own_pins(self):
+        import io
+        from unittest.mock import patch
+
+        def wheel(modules=("__init__", "lifecycle"), extra_metadata=""):
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr(
+                    f"alm_lifecycle_core-{release.ALM_VERSION}.dist-info/METADATA",
+                    f"Metadata-Version: 2.1\nName: alm-lifecycle-core\nVersion: {release.ALM_VERSION}\n{extra_metadata}",
+                )
+                for name in modules:
+                    archive.writestr(f"alm_lifecycle/{name}.py", "VALUE = 1\n")
+            return buffer.getvalue()
+
+        filename = f"alm_lifecycle_core-{release.ALM_VERSION}-py3-none-any.whl"
+        data = wheel()
+        with self.assertRaisesRegex(ValueError, "independently pinned producer release"):
+            release.verify_alm_bytes(data, filename)
+        with self.assertRaisesRegex(ValueError, "wheel filename"):
+            release.verify_alm_bytes(data, "alm_lifecycle_core-9.9-py3-none-any.whl")
+        with patch.object(release, "ALM_WHEEL_SHA256", release.compute_sha256(data)):
+            artifact = release.verify_alm_bytes(data, filename)
+        self.assertEqual((artifact["version"], artifact["source_commit"]), (release.ALM_VERSION, release.ALM_COMMIT))
+        self.assertEqual(sorted(artifact["source_sha256"]), ["alm_lifecycle/__init__.py", "alm_lifecycle/lifecycle.py"])
+        for bad, message in ((wheel(modules=("__init__",)), "missing required package modules"),
+                             (wheel(extra_metadata="Requires-Dist: requests\n"), "must not declare runtime dependencies")):
+            with patch.object(release, "ALM_WHEEL_SHA256", release.compute_sha256(bad)):
+                with self.assertRaisesRegex(ValueError, message):
+                    release.verify_alm_bytes(bad, filename)
+
+    @unittest.skipUnless(os.environ.get("DNCP_ALM_WHEEL"),
+                         "Set DNCP_ALM_WHEEL to the published alm-lifecycle-core wheel for the offline install check")
+    def test_offline_alm_install_loads_and_bare_or_tampered_installs_are_refused(self):
+        wheel = Path(os.environ["DNCP_ALM_WHEEL"]).resolve()
+        project = Path(__file__).resolve().parents[1]
+        check = (
+            f"import sys; sys.path.insert(0, {str(project)!r}); from control_plane import alm_exchange as a\n"
+            "try: print('loaded', a.require_alm_core().__version__)\n"
+            "except a.AlmExchangeError as e: print('refused', e.code)\n"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def environment(name):
+                venv.EnvBuilder(with_pip=True).create(root / name)
+                return root / name / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+
+            def run(*arguments):
+                result = subprocess.run([str(a) for a in arguments], cwd=root, capture_output=True, text=True, timeout=240)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                return result.stdout.strip()
+
+            verified = environment("verified")
+            run(verified, project / "install_alm_core.py", wheel)
+            self.assertEqual(run(verified, "-c", check), f"loaded {release.ALM_VERSION}")
+            bare = environment("bare")
+            run(bare, "-m", "pip", "install", "--no-index", "--no-deps", wheel)
+            self.assertEqual(run(bare, "-c", check), "refused capability_unverified")
+            installed = Path(run(verified, "-c", "import alm_lifecycle.lifecycle as m; print(m.__file__)"))
+            installed.write_bytes(installed.read_bytes() + b"# changed\n")
+            self.assertEqual(run(verified, "-c", check), "refused capability_unverified")
+
     def test_offline_installer_ignores_shadow_pip_metadata_and_ambient_config(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
