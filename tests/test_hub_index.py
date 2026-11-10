@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import sqlite3
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 from control_plane import hub_index
@@ -186,6 +187,66 @@ class HubIndexTests(unittest.TestCase):
         self.assertNotIn("<script>", rendered)
         self.assertNotIn("<img", rendered)
         self.assertIn("&lt;script&gt;", rendered)
+
+    def test_hub_only_search_never_builds_the_fabric_cache(self) -> None:
+        empty = self.fabric.search_hub("anything")
+        self.assertEqual((empty["status"]["built"], empty["results"]), (False, []))
+        self.assertFalse(self.fabric.db_path.exists())
+        self.add(record("alpha", [("user", "older wombat")], updated_at="2026-01-02T00:00:00Z"))
+        self.add(record("beta", [("user", "newer wombat")], updated_at="2026-02-02T00:00:00Z"))
+        self.fabric.index_hub(self.library)
+        found = self.fabric.search_hub("wombat", limit=1)
+        self.assertEqual((len(found["results"]), found["status"]["conversations"]), (1, 2))
+        self.assertNotIn("rank_score", found["results"][0])
+        browse = self.fabric.search_hub("")["results"]
+        self.assertEqual([item["updated_at"][:7] for item in browse], ["2026-02", "2026-01"])
+        self.assertEqual(self.fabric.search_hub("!!!")["results"], [])
+        self.assertFalse(self.fabric.freshness()["built"])
+        for limit in (0, 51, True, "5"):
+            with self.assertRaises(ValueError):
+                self.fabric.search_hub("wombat", limit=limit)
+
+    def test_mcp_search_includes_hub_text_only_on_request(self) -> None:
+        from control_plane.mcp_server import search_fabric, tool_contracts
+        from control_plane.phone_home import PhoneHomeError
+        self.add(record("alpha", [("user", "requested echidna")]))
+        self.fabric.index_hub(self.library)
+        self.fabric.rebuild(include_conversations=False)  # keep the tool's cache check synthetic
+        service = SimpleNamespace(fabric=self.fabric)
+        default = search_fabric(service, {"query": "echidna"})
+        self.assertEqual(default["results"], [])
+        self.assertNotIn("conversation_hub", default)
+        opted = search_fabric(service, {"query": "echidna", "include_conversation_hub": True, "limit": 5})
+        self.assertEqual([item["source"] for item in opted["results"]], ["conversation-hub"])
+        self.assertEqual(opted["conversation_hub"]["revisions"], 1)
+        self.assertIn("untrusted", opted["notice"])
+        for arguments in ({"query": "echidna", "include_conversation_hub": "yes"},
+                          {"query": "echidna", "limit": 51}, {"query": "echidna", "limit": True},
+                          {"query": None}, {"query": "echidna", "kind": 3}):
+            with self.assertRaises(PhoneHomeError):
+                search_fabric(service, arguments)
+        contract = next(item for item in tool_contracts() if item["name"] == "devnet_search_fabric")
+        self.assertEqual(contract["inputSchema"]["properties"]["include_conversation_hub"],
+                         {"type": "boolean", "default": False})
+
+    def test_conversations_tab_panel_lists_escaped_hub_matches(self) -> None:
+        from control_plane.ui import ControlPlaneWorkbench
+        workbench = SimpleNamespace(fabric=self.fabric)
+        panel = ControlPlaneWorkbench.render_hub_library_panel
+        self.assertIn("not indexed", panel(workbench, "numbat"))
+        item = record("alpha", [("user", "<b>bold</b> numbat <script>x</script>")], title="<i>Numbat</i> notes")
+        self.add(item)
+        self.fabric.index_hub(self.library)
+        html = panel(workbench, "numbat")
+        self.assertIn("1 conversations, 1 revisions", html)
+        self.assertIn("<mark>numbat</mark>", html)
+        self.assertIn(item["id"], html)
+        self.assertIn(item["revision"], html)
+        self.assertIn(f"entity=hub:{item['id']}", html)
+        for raw in ("<script>", "<b>bold", "<i>Numbat"):
+            self.assertNotIn(raw, html)
+        self.assertIn("No indexed conversation matches", panel(workbench, "absent"))
+        self.assertIn("most recently updated (1)", panel(workbench, ""))
 
     def test_fabric_rebuild_keeps_the_hub_index(self) -> None:
         self.add(record("alpha", [("user", "durable tapir")]))

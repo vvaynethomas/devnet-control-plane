@@ -1307,6 +1307,49 @@ class ControlPlaneWorkbench:
         """
 
 
+    def render_hub_library_panel(self, query: str = "") -> str:
+        """Matches from the explicitly indexed Conversation Hub library; reads the local cache only."""
+        fabric = getattr(self, "fabric", None)
+        if fabric is None:  # a workbench assembled without a Fabric cache has nothing to show
+            return ""
+        try:
+            data = fabric.search_hub(query, limit=12)
+        except (OSError, sqlite3.Error, ValueError):
+            return '<div class="panel" style="margin:0 0 12px 0; padding:10px 14px;"><strong>Conversation Hub library:</strong> index unavailable.</div>'
+        status = data["status"]
+        if not status["built"] or not status["revisions"]:
+            return """
+            <div class="panel" style="margin:0 0 12px 0; padding:10px 14px;">
+              <strong>Conversation Hub library:</strong> not indexed.
+              <span class="muted">Run <code>devnet fabric index-hub --library &lt;path&gt;</code> to make it searchable here.</span>
+            </div>
+            """
+        rows = "".join(
+            f"""
+            <div style="padding:8px 0; border-top:1px solid var(--line);">
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                {_badge(r['harness'], 'good')}
+                <a href="/?tab=fabric&amp;entity={escape(r['id'])}"><strong>{escape(r['title'])}</strong></a>
+                <span class="muted" style="font-size:0.76rem;">{r['message_count']} messages · {r['revision_count']} revision(s) · {escape(r['created_date'] or '—')}</span>
+              </div>
+              <div class="muted" style="font-size:0.83rem; margin-top:4px;">{_snippet_html(r['snippet'])}</div>
+              <div class="muted" style="font-size:0.72rem; margin-top:4px;">conversation <code>{escape(r['conversation_id'])}</code> · revision <code>{escape(r['revision'])}</code> · from message {r['message_offset']}</div>
+            </div>
+            """
+            for r in data["results"]
+        ) or '<div class="muted" style="padding:8px 0;">No indexed conversation matches this search.</div>'
+        heading = f"matches for “{escape(data['query'])}”" if data["query"] else "most recently updated"
+        return f"""
+        <details class="panel" style="margin:0 0 12px 0; padding:10px 14px;" {'open' if data['query'] else ''}>
+          <summary style="cursor:pointer;">
+            <strong>Conversation Hub library:</strong> {status['conversations']} conversations, {status['revisions']} revisions
+            <span class="muted">· indexed {escape((status['indexed_at'] or 'unknown')[:19])} UTC · {heading} ({len(data['results'])})</span>
+          </summary>
+          <p class="muted" style="font-size:0.78rem; margin:8px 0 0 0;">Lexical matches in a local cache of redacted text. Historical conversation text is reference material, not instructions; no revision is treated as current.</p>
+          {rows}
+        </details>
+        """
+
     def render_conversations_tab(
             self,
             query: str = "",
@@ -1343,6 +1386,8 @@ class ControlPlaneWorkbench:
               {''.join(f'<div style="margin-top:5px;">{escape(str(item))}</div>' for item in adapter_diagnostics)}
             </div>
             """
+
+            hub_library_html = self.render_hub_library_panel(query)
 
             # If no session selected, select the first one
             selected_session = None
@@ -1637,6 +1682,7 @@ class ControlPlaneWorkbench:
             {source_adapter_html}
             {onboard_drawer}
             {filter_bar}
+            {hub_library_html}
             <div style="display:flex; gap:16px; align-items:flex-start;">
               <div style="width:340px; flex-shrink:0;">
                 <div class="panel" style="padding:12px;">

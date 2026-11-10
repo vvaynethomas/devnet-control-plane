@@ -241,8 +241,7 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   longer holds; each revision commits on its own, so an interrupted run resumes.
   There is no watcher or background run: the cache is as fresh as the last
   explicit command, reported as `conversation_hub.indexed_at` in Fabric freshness.
-- **Search.** With `include_hub=True`, which only the workbench Fabric tab and
-  its JSON endpoint pass, `FabricIndex.search` returns Hub hits as `kind: "conversation"`
+- **Search.** With `include_hub=True`, `FabricIndex.search` returns Hub hits as `kind: "conversation"`
   with `id: "hub:<conversation_id>"`, the matching `revision`, `revision_count`,
   `message_offset` and a `conversation-hub://` locator. Every revision is
   indexed; results show the best-ranked chunk per conversation and never label a
@@ -251,6 +250,14 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   the provenance graph. Phone-home checks, capability discovery and repository
   digests do not opt in, so indexed conversation text does not enter their
   output or stored proposals.
+- **Who opts in.** The workbench Fabric tab and its JSON endpoint; the
+  Conversations tab, which shows a "Conversation Hub library" panel through
+  `FabricIndex.search_hub` (Hub tables only, never builds or harvests); and the
+  MCP tool `devnet_search_fabric` when the caller passes
+  `include_conversation_hub: true`. That flag defaults to false, and an opted-in
+  response adds the cache status and a notice that the text is untrusted
+  historical reference material. The workbench escapes indexed text and restores
+  only the FTS5 highlight tags.
 - **Output and errors.** The command prints counts and timings only. Failures
   use the codes above (`unavailable`, `schema_incompatible`, `library_busy`) and
   never echo paths or content. A record with another `schema_version`, an
@@ -274,7 +281,9 @@ cross-platform or product acceptance.
 temporary synthetic libraries only: search and message offsets, incremental
 re-runs and removals, revision collapsing, duplicate observations, a 2 MiB record,
 redaction, survival across `rebuild`, incompatible/unmarked/future libraries, a
-busy library, an unmodified source file and count-only CLI output.
+busy library, an unmodified source file and count-only CLI output, plus the
+Hub-only search, the MCP opt-in flag and its argument checks, and escaped
+rendering in the Conversations panel. The panel was not checked in a browser.
 
 
 `python -m unittest tests.test_conversation_hub_adapter tests.test_conversation_library -v`
