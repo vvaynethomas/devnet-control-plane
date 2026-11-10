@@ -291,7 +291,13 @@ do **not** finish DNCP-010's planned live-state/Metabolizer server or imply a
 working delivery service. The handoff operations are also callable Python methods
 without MCP/UI; no product must use DNCP or the incubator as runtime mediation.
 
-Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, version/help are implemented CLI commands.
+Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, `fabric index-hub`, version/help are implemented CLI commands.
+
+**DNCP-015 Fabric index slice:** `devnet fabric index-hub --library <explicit-path>`
+incrementally copies redacted message text from a producer version-1 library into
+the local Fabric cache for FTS5 search, printing counts and timings only. The
+cache then holds personal conversation text and must stay local; see
+[the consumer contract](docs/conversation-library-consumer.md#fabric-index-over-the-library).
 
 **DNCP-015 first consumer slice:** `devnet conversation-library --library
 'C:\Private\ConversationHub\library.sqlite'` explicitly reads a producer

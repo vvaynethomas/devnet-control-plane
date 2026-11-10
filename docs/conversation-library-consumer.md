@@ -210,7 +210,72 @@ library while it is being written; the producer has no live-library backup
 protocol. DNCP never checkpoints, repairs, changes permissions, or writes its
 library. This is snapshot consistency, not a backup or recovery protocol.
 
+## Fabric index over the library
+
+`devnet fabric index-hub --library <explicit-path>` copies redacted message text
+from a version-1 library into the rebuildable Fabric cache so it can be searched
+with FTS5. It exists because the bounded reader above refuses real libraries
+(32 MiB / 256 observations / 256 KiB per record) by design.
+
+```powershell
+devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
+```
+
+- **Read path.** `control_plane/hub_index.py` opens the library itself with
+  `mode=ro`, `query_only`, trusted schema disabled, a one-second busy timeout and
+  one read transaction. It checks the application ID, user version and the three
+  table shapes, then streams messages with SQLite `json_each`, so a large record
+  is never loaded whole. It does not import or require the optional Hub package
+  and works on Python 3.10+. This is a second DNCP read path beside the pinned
+  Hub `read_snapshot`; both enforce the same version-1 identifiers.
+- **What is stored.** Per revision: opaque conversation ID and revision, platform,
+  title (or a flagged title derived from the first message), timestamps and
+  message count. Per chunk of about 8,000 characters: redacted `role: content`
+  text and the first and last message positions. Raw exports, `source_record`,
+  export URIs and provenance are not copied. The cache therefore **contains
+  personal conversation text**; it lives in the DNCP data directory, which is
+  ignored by Git, and must stay out of synced or shared locations.
+- **Incremental.** Tables `hub_revisions`, `hub_chunks_fts` and `hub_metadata`
+  sit beside the Fabric tables and are not dropped by `FabricIndex.rebuild`. A
+  run indexes revisions the cache lacks and removes revisions the library no
+  longer holds; each revision commits on its own, so an interrupted run resumes.
+  There is no watcher or background run: the cache is as fresh as the last
+  explicit command, reported as `conversation_hub.indexed_at` in Fabric freshness.
+- **Search.** With `include_hub=True`, which only the workbench Fabric tab and
+  its JSON endpoint pass, `FabricIndex.search` returns Hub hits as `kind: "conversation"`
+  with `id: "hub:<conversation_id>"`, the matching `revision`, `revision_count`,
+  `message_offset` and a `conversation-hub://` locator. Every revision is
+  indexed; results show the best-ranked chunk per conversation and never label a
+  revision current. Hub and Fabric hits are interleaved by FTS5 bm25 score, which
+  is lexical relevance only. Entity-ID mentions in Hub text are not linked into
+  the provenance graph. Phone-home checks, capability discovery and repository
+  digests do not opt in, so indexed conversation text does not enter their
+  output or stored proposals.
+- **Output and errors.** The command prints counts and timings only. Failures
+  use the codes above (`unavailable`, `schema_incompatible`, `library_busy`) and
+  never echo paths or content. A record with another `schema_version`, an
+  unknown role, a non-increasing position or mismatched identity stops the run;
+  revisions committed before it remain.
+
+Message extraction is isolated in `chunk_messages`, which accepts any ordered
+`(position, role, content)` stream, so a shared extractor can replace it later
+without changing storage or search.
+
+On 2026-11-09 the operator's own library (4.16 GB, 461 revisions of 253
+conversations, largest record 32.7 MB) was indexed into a temporary cache: 14.7 s
+for the first run, 0.01 s for an unchanged second run, 2,138 chunks, 13.1 million
+characters and a 22.6 MB cache. Three sample queries returned in 65 to 105 ms.
+Only these aggregates were recorded. This is one machine and one library, not
+cross-platform or product acceptance.
+
 ## Validation and remaining work
+
+`python -m unittest tests.test_hub_index -v` covers the Fabric index with
+temporary synthetic libraries only: search and message offsets, incremental
+re-runs and removals, revision collapsing, duplicate observations, a 2 MiB record,
+redaction, survival across `rebuild`, incompatible/unmarked/future libraries, a
+busy library, an unmodified source file and count-only CLI output.
+
 
 `python -m unittest tests.test_conversation_hub_adapter tests.test_conversation_library -v`
 uses temporary synthetic source files/databases and library fixtures only. It

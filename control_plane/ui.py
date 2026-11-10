@@ -33,6 +33,11 @@ def _copy_attributes(text: str) -> str:
     )
 
 
+def _snippet_html(snippet: str) -> str:
+    """Escape indexed text, then restore only the FTS5 highlight tags."""
+    return escape(snippet).replace("&lt;mark&gt;", "<mark>").replace("&lt;/mark&gt;", "</mark>")
+
+
 def _chip_link(eid: str) -> str:
     return f'<a class="chip" href="/?tab=fabric&amp;entity={escape(eid)}">{escape(eid)}</a>'
 
@@ -710,7 +715,7 @@ class ControlPlaneWorkbench:
         """
 
     def render_fabric_tab(self, query: str = "", kind_filter: str = "", entity_id: str = "") -> str:
-        search_data = self.fabric.search(query=query, kind_filter=kind_filter, limit=45)
+        search_data = self.fabric.search(query=query, kind_filter=kind_filter, limit=45, include_hub=True)
         counts = search_data["counts"]
 
         entity_panel = ""
@@ -757,7 +762,7 @@ class ControlPlaneWorkbench:
         for r in search_data["results"]:
             up_chips = "".join(_chip_link(u) for u in r["upstream_refs"][:5])
             down_chips = "".join(_chip_link(d) for d in r["downstream_refs"][:5])
-            snippet_html = r["snippet"] if "<mark>" in r["snippet"] else escape(r["snippet"])
+            snippet_html = _snippet_html(r["snippet"])
             result_rows.append(
                 f"""
                 <tr>
@@ -1792,7 +1797,7 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             if parsed.path == "/api/fabric":
                 q = qs.get("q", [""])[0]
                 kind = qs.get("kind", [""])[0]
-                self._send_json(workbench.fabric.search(query=q, kind_filter=kind))
+                self._send_json(workbench.fabric.search(query=q, kind_filter=kind, include_hub=True))
                 return
             if parsed.path == "/api/capabilities":
                 prob = qs.get("prob", [""])[0]

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEFAULT_DATA_DIR, FACTORY_ROOT
+from . import hub_index
 from .safety import SECRET_RE
 from .conversation_library import ConversationLibraryError, _configured_hub_api
 from .conversation_hub_adapter import read_local_sessions
@@ -462,6 +463,10 @@ class FabricIndex:
             "total_indexed": len(entities) + len(conversations),
         }
 
+    def index_hub(self, library: Path) -> dict[str, Any]:
+        """Incrementally index an explicitly selected PRJ-0006 library; survives `rebuild`."""
+        return hub_index.index_library(self.db_path, library)
+
     def ensure_built(self) -> None:
         if not self.db_path.is_file():
             self.rebuild()
@@ -476,29 +481,45 @@ class FabricIndex:
     def freshness(self) -> dict[str, Any]:
         """Report cache age without building or reading personal conversations."""
         if not self.db_path.is_file():
-            return {"built": False, "rebuilt_at": None, "includes_conversations": None, "factory_root": None}
+            return {"built": False, "rebuilt_at": None, "includes_conversations": None, "factory_root": None,
+                    "conversation_hub": hub_index.status_unbuilt()}
         with closing(self._connect()) as conn:
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             values = dict(conn.execute("SELECT key, value FROM fabric_metadata")) if "fabric_metadata" in tables else {}
+            hub = hub_index.status(conn)
         return {
             "built": "fabric_items" in tables,
             "rebuilt_at": values.get("rebuilt_at"),
             "includes_conversations": json.loads(values["includes_conversations"]) if "includes_conversations" in values else None,
             "factory_root": values.get("factory_root"),
+            "conversation_hub": hub,
         }
 
     def search(
         self, query: str = "", kind_filter: str = "", limit: int = 40, *, initialize: bool = True,
+        include_hub: bool = False,
     ) -> dict[str, Any]:
-        """Search across knowledge records and AI conversations with provenance chains."""
+        """Search across knowledge records and AI conversations with provenance chains.
+
+        Indexed Conversation Hub text is personal, so callers opt in with `include_hub`;
+        phone-home checks and repository digests keep their existing result set.
+        """
         if initialize:
             self.ensure_built()
         q = query.strip()
         with closing(self._connect()) as conn:
+            # A cache holding only the Hub index (no rebuild yet) is searchable on its own.
+            has_items = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='fabric_items'"
+            ).fetchone() is not None
             counts_rows = conn.execute(
                 "SELECT kind, COUNT(*) AS cnt FROM fabric_items GROUP BY kind ORDER BY cnt DESC"
-            ).fetchall()
+            ).fetchall() if has_items else []
             counts = {r["kind"]: r["cnt"] for r in counts_rows}
+            include_hub = include_hub and kind_filter in ("", "conversation")
+            hub_conversations = hub_index.status(conn)["conversations"] if include_hub else 0
+            if hub_conversations:
+                counts["conversation"] = counts.get("conversation", 0) + hub_conversations
 
             if not q:
                 sql = "SELECT * FROM fabric_items"
@@ -508,8 +529,10 @@ class FabricIndex:
                     params.append(kind_filter)
                 sql += " ORDER BY CASE WHEN kind='conversation' THEN 1 ELSE 0 END, id ASC LIMIT ?"
                 params.append(limit)
-                rows = conn.execute(sql, params).fetchall()
+                rows = conn.execute(sql, params).fetchall() if has_items else []
                 results = [self._format_row(r, snippet=r["body"][:260]) for r in rows]
+                if include_hub:
+                    results.extend(hub_index.recent(conn, limit - len(results)))
                 return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": results}
 
             # Sanitize FTS5 query tokens
@@ -532,8 +555,15 @@ class FabricIndex:
                 params.append(kind_filter)
             sql += " ORDER BY rank_score ASC LIMIT ?"
             params.append(limit)
-            rows = conn.execute(sql, params).fetchall()
-            results = [self._format_row(r, snippet=r["match_snippet"]) for r in rows]
+            rows = conn.execute(sql, params).fetchall() if has_items else []
+            results = [{**self._format_row(r, snippet=r["match_snippet"]), "rank_score": r["rank_score"]} for r in rows]
+            if include_hub:
+                # Both scores are FTS5 bm25 (lower is better); interleave and keep the best `limit`.
+                results.extend(hub_index.search(conn, fts_query, limit))
+                results.sort(key=lambda item: item["rank_score"])
+                results = results[:limit]
+            for item in results:
+                item.pop("rank_score", None)
             return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": results}
 
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
@@ -542,7 +572,7 @@ class FabricIndex:
         with closing(self._connect()) as conn:
             row = conn.execute("SELECT * FROM fabric_items WHERE id = ?", (entity_id,)).fetchone()
             if row is None:
-                return None
+                return hub_index.entity(conn, entity_id) if entity_id.startswith("hub:") else None
             item = self._format_row(row, snippet=row["body"][:400], include_full_body=True)
             # Resolve upstream & downstream titles
             up_nodes = []

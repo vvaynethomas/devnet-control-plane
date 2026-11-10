@@ -31,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     library.add_argument("--library", type=Path, required=True)
     library.add_argument("--expected-snapshot", help="Reject observations changed since a previous snapshot SHA-256")
+    fabric = commands.add_parser("fabric", help="Explicit Fabric cache operations").add_subparsers(
+        dest="fabric_operation", required=True,
+    )
+    index_hub = fabric.add_parser(
+        "index-hub", help="Incrementally index an explicitly selected PRJ-0006 library; prints counts and timings only",
+    )
+    index_hub.add_argument("--library", type=Path, required=True)
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -108,6 +115,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "conversation-library":
             print(json.dumps(read_conversation_library(args.library, args.expected_snapshot), indent=2, ensure_ascii=False))
+            return 0
+        if args.command == "fabric":
+            from .fabric import FabricIndex
+            index = FabricIndex(args.data_dir / "control_plane_fabric.sqlite", args.factory_root)
+            print(json.dumps(index.index_hub(args.library), indent=2, ensure_ascii=False))
             return 0
         if args.command == "digest":
             from .repo_metabolizer import RepositoryMetabolizer
