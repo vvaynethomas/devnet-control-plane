@@ -9,6 +9,7 @@ from typing import Any
 from .phone_home import KINDS, PhoneHome, PhoneHomeError
 from .material_capability import FORMATS
 from .operational_handoffs import contracts as handoff_contracts
+from .precedents import find_precedents, inspect_precedent
 
 
 def tool_contracts() -> list[dict[str, Any]]:
@@ -36,6 +37,57 @@ def tool_contracts() -> list[dict[str, Any]]:
         "required": ["name", "format"],
         "oneOf": [{"required": ["text"]}, {"required": ["base64"]}],
     }
+    scope = {
+        "type": "object", "additionalProperties": False,
+        "properties": {name: string(500) for name in ("runtime", "input", "constraints")},
+        "required": ["runtime", "input", "constraints"],
+    }
+    observation = {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+            "event_id": string(200, True),
+            "event_type": {"type": "string", "enum": ["observation", "correction", "dispute"]},
+            "target_id": string(200),
+            "need": string(2000),
+            "outcome": {"type": "string", "enum": ["success", "failure", "mixed", "inconclusive", "unknown"]},
+            "scope": scope,
+            "summary": string(4000, True),
+            "source_ref": string(2000, True),
+            "revision": {"type": ["string", "null"], "maxLength": 200},
+        },
+        "required": ["event_id", "event_type", "target_id", "need", "outcome", "scope",
+                     "summary", "source_ref", "revision"],
+    }
+    precedent_records = {
+        "type": "array", "maxItems": 50,
+        "items": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "record_id": string(200, True),
+                "record_revision": {"type": ["string", "null"], "maxLength": 200},
+                "record_ref": string(2000, True),
+                "technique": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {"id": string(200, True), "title": string(200, True), "summary": string(4000)},
+                    "required": ["id", "title", "summary"],
+                },
+                "implementation": {
+                    "type": "object", "additionalProperties": False,
+                    "properties": {
+                        "id": string(200, True), "source_ref": string(2000, True),
+                        "revision": {"type": ["string", "null"], "maxLength": 200},
+                    },
+                    "required": ["id", "source_ref", "revision"],
+                },
+                "observations": {"type": "array", "maxItems": 200, "items": observation},
+            },
+            "required": ["record_id", "record_revision", "record_ref", "technique", "implementation", "observations"],
+        },
+    }
+    context = {
+        "type": "object", "additionalProperties": False,
+        "properties": {name: string(500) for name in ("runtime", "input", "constraints")},
+    }
     for name in ("source_session", "source_ref", "idempotency_key"):
         fields[name] = string(1000)
     for name in ("tags", "related_refs"):
@@ -55,6 +107,15 @@ def tool_contracts() -> list[dict[str, Any]]:
              {"owner": string(50), "bucket": string(50), "route_query": string(500)}, []),
         tool("devnet_search_fabric", "Full-text FTS5 search across architectural records (ADRs, DEC, FND, PAT, SRC, ART), runbooks, and indexed AI conversation logs.",
              {"query": string(2000, True), "kind": string(50), "limit": limit}, ["query"]),
+        tool("devnet_find_precedents",
+             "Lexically retrieve caller-supplied precedent records by need; no fetching, indexing, endorsement, or feedback writes.",
+             {"query": string(2000, True), "records": precedent_records, "context": context,
+              "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 10}},
+             ["query", "records"]),
+        tool("devnet_inspect_precedent",
+             "Inspect caller-supplied revision-scoped precedent evidence and corrections; no fetching or endorsement.",
+             {"implementation_id": string(200, True), "records": precedent_records},
+             ["implementation_id", "records"]),
         tool("devnet_get_context_handoff", "Compile a structured, self-contained Context Handoff Packet (active conversation turns, current git branch/diff, and open gates) for cross-session/cross-harness AI context transfer.",
              {"session_id": string(100), "turns_limit": {"type": "integer", "minimum": 1, "maximum": 50}}, []),
     ]
@@ -143,6 +204,13 @@ def create_mcp_server(service: PhoneHome) -> Any:
                 return res
             if name == "devnet_search_fabric":
                 return service.fabric.search(query=arguments.get("query"), kind_filter=arguments.get("kind", ""), limit=arguments.get("limit", 20))
+            if name == "devnet_find_precedents":
+                return find_precedents(
+                    arguments.get("query"), arguments.get("records"), arguments.get("context"),
+                    arguments.get("limit", 10),
+                )
+            if name == "devnet_inspect_precedent":
+                return inspect_precedent(arguments.get("implementation_id"), arguments.get("records"))
             if name == "devnet_get_context_handoff":
                 from .handoff import compile_context_handoff
                 return compile_context_handoff(
