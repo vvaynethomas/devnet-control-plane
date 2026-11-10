@@ -35,6 +35,14 @@ service, verified completion, ALM release qualification, or complete DNCP-010
 acceptance; no priorities/dependencies change.
 See [the operational contract](docs/operational-handoffs.md).
 
+**Handoff preparation slice (2026-11-10):** read-only `handoff_prepare` (Python and MCP)
+drafts a packet whose `source_refs` cite related past handoffs, Fabric records and
+indexed Conversation Hub conversations. References only, no conversation text; it
+stores, submits and builds nothing. Synthetic service and SDK stdio tests cover it;
+one run against the operator's real index was checked by counts only. Not automatic
+dispatch, live cross-agent state or DNCP-010 acceptance. Still open: stored handoffs
+and results as searchable Fabric precedent, and a workbench surface.
+
 The following table preserves the **baseline audit**. Subsequent phone-home, digester and
 ownership changes are recorded below; baseline missing-CLI/registry statements
 are historical evidence, not the current checkout state.

@@ -132,7 +132,13 @@ def tool_contracts() -> list[dict[str, Any]]:
             name, "Store untrusted operational data locally; no dispatch, acceptance or authority.",
             fields, [field for field in fields if field != "requested_action"],
         ))
+    from .handoff_prepare import contract as handoff_prepare_contract
     contracts.extend([
+        tool("handoff_prepare",
+             "Read-only: draft a handoff packet whose source_refs cite related past handoffs, Fabric records and "
+             "indexed Conversation Hub conversations. References only, no conversation text; nothing is stored "
+             "or submitted. Review the draft, then call handoff_submit.",
+             handoff_prepare_contract(), []),
         tool("handoff_get", "Read a packet and latest caller-reported result, not verified completion.",
              {"handoff_id": string(100, True)}, ["handoff_id"]),
         tool("handoff_list", "List pending requests only; information needs no acceptance. Exact filters.",
@@ -195,6 +201,8 @@ def create_mcp_server(service: PhoneHome) -> Any:
                 return service.handoff_submit(arguments)
             if name == "handoff_result":
                 return service.handoff_result(arguments)
+            if name == "handoff_prepare":
+                return service.handoff_prepare(arguments)
             if name == "handoff_get":
                 return service.handoff_get(arguments.get("handoff_id"))
             if name == "handoff_list":
