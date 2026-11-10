@@ -274,6 +274,27 @@ class HubIndexTests(unittest.TestCase):
         self.assertIn("No indexed conversation matches", panel(workbench, "absent"))
         self.assertIn("most recently updated (1)", panel(workbench, ""))
 
+    def test_combined_search_alternates_records_and_conversations_by_rank(self) -> None:
+        records = self.factory / "knowledge"
+        records.mkdir()
+        for number in range(3):
+            (records / f"FND-900{number}.md").write_text(
+                f"---\nid: FND-900{number}\ntitle: Quokka finding {number}\ntype: finding\n---\n"
+                f"A short note that mentions quokka once.\n", encoding="utf-8")
+        for name in ("alpha", "beta", "gamma", "delta", "epsilon"):
+            self.add(record(name, [("user", "quokka " * 40)]))
+        self.fabric.index_hub(self.library)
+        self.fabric.rebuild(include_conversations=False)
+        sources = [item.get("source", "fabric") for item in self.search("quokka", limit=6)]
+        self.assertEqual(sources, ["fabric", "conversation-hub"] * 3)
+        sources = [item.get("source", "fabric") for item in self.search("quokka", limit=10)]
+        self.assertEqual(sources, ["fabric", "conversation-hub"] * 3 + ["conversation-hub"] * 2)
+        self.assertEqual(len(self.search("quokka", limit=1)), 1)
+        self.assertNotIn("rank_score", self.search("quokka", limit=1)[0])
+        only_records = self.fabric.search("quokka", limit=10, initialize=False)["results"]
+        self.assertEqual([item["id"] for item in only_records],
+                         [item["id"] for item in self.search("quokka", limit=10) if "source" not in item])
+
     def test_fabric_rebuild_keeps_the_hub_index(self) -> None:
         self.add(record("alpha", [("user", "durable tapir")]))
         self.fabric.index_hub(self.library)
