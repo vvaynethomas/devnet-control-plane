@@ -9,7 +9,11 @@ recorded assertions.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime, timezone
 import hashlib
+import json
+import os
+import re
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,10 @@ from .material_pins import ALM_COMMIT, ALM_URL, ALM_VERSION, ALM_WHEEL_SHA256
 from .verified_package import SNAPSHOT_LOAD_LOCK, load_package_from_snapshot, unload_package_snapshot
 
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
+MAX_LEDGERS = 20
+MAX_COMPARED_FILE_BYTES = 8 * 1024 * 1024
+REGISTRATIONS_FILE = "alm_ledgers.json"
+LIFECYCLE_KINDS = {"configuration", "evaluation", "proposal", "review", "release", "deployment"}
 NAMESPACE = "_dncp_verified_alm_lifecycle"
 INSTALL_GUIDANCE = (
     'Install with authenticated private repository access: pip install "devnet-control-plane[alm]". '
@@ -77,7 +85,7 @@ def clear_alm_core_cache() -> None:
         unload_package_snapshot(NAMESPACE)
 
 
-def _component(registry: Any, core: Any, record: dict[str, Any]) -> dict[str, Any]:
+def _component(registry: Any, record: dict[str, Any]) -> dict[str, Any]:
     used_by = registry.inspect(record)["used_by"]
     return {
         "id": record["id"], "kind": record["kind"], "version": record["version"],
@@ -89,12 +97,8 @@ def _component(registry: Any, core: Any, record: dict[str, Any]) -> dict[str, An
     }
 
 
-def inspect_ledger(manifest: Path, root: Path | None = None, kind: str = "", component_id: str = "") -> dict[str, Any]:
-    """Validate one ledger and summarize its components and release readiness without trusting it.
-
-    With `root`, every recorded file digest is also compared with the file under that
-    directory, so drift is a validation failure. Only component metadata is returned.
-    """
+def _read_registry(manifest: Path, root: Path | None = None) -> tuple[Any, bytes]:
+    """Read and validate one ledger with the pinned core; raises AlmExchangeError."""
     core = require_alm_core()
     try:
         size = manifest.stat().st_size
@@ -115,10 +119,18 @@ def inspect_ledger(manifest: Path, root: Path | None = None, kind: str = "", com
         raise AlmExchangeError("ledger_invalid", f"Ledger failed validation: {detail}") from None
     except OSError:
         raise AlmExchangeError("ledger_invalid", "Ledger failed validation: a recorded file is missing under the root.") from None
+    return registry, raw
 
+
+def inspect_ledger(manifest: Path, root: Path | None = None, kind: str = "", component_id: str = "") -> dict[str, Any]:
+    """Validate one ledger and summarize its components and release readiness without trusting it.
+
+    With `root`, every recorded file digest is also compared with the file under that
+    directory, so drift is a validation failure. Only component metadata is returned.
+    """
+    registry, raw = _read_registry(manifest, root)
     records = list(registry.records.values())
-    component_kinds = sorted({r["kind"] for r in records} - {
-        "configuration", "evaluation", "proposal", "review", "release", "deployment"})
+    component_kinds = sorted({r["kind"] for r in records} - LIFECYCLE_KINDS)
     if kind and kind not in component_kinds:
         raise AlmExchangeError("not_found", "No component of that kind is in the ledger.", 404)
     selected = [r for r in records if r["kind"] in component_kinds
@@ -144,7 +156,142 @@ def inspect_ledger(manifest: Path, root: Path | None = None, kind: str = "", com
                    "kinds": dict(sorted(Counter(r["kind"] for r in records).items()))},
         "valid": True, "trusted": False, "files_compared_with_root": root is not None,
         "live_deployment_verified": False,
-        "components": [_component(registry, core, record) for record in selected],
+        "components": [_component(registry, record) for record in selected],
         "releases": releases,
         "notice": NOTICE,
     }
+
+
+# --- Explicitly registered ledgers, read at query time (no cache) ---------------------------
+
+
+def _registrations(data_dir: Path) -> list[dict[str, Any]]:
+    path = data_dir / REGISTRATIONS_FILE
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        entries = data["ledgers"]
+        if data.get("schema_version") != 1 or not isinstance(entries, list) or len(entries) > MAX_LEDGERS:
+            raise ValueError
+        for entry in entries:
+            if (set(entry) != {"manifest", "root", "enabled", "registered_at"}
+                    or not isinstance(entry["manifest"], str) or type(entry["enabled"]) is not bool
+                    or not (entry["root"] is None or isinstance(entry["root"], str))):
+                raise ValueError
+        return entries
+    except (OSError, ValueError, KeyError, TypeError):
+        raise AlmExchangeError("registrations_invalid", "ALM ledger registrations are unreadable or malformed.", 503) from None
+
+
+def _save(data_dir: Path, entries: list[dict[str, Any]]) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    path = data_dir / REGISTRATIONS_FILE
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps({"schema_version": 1, "ledgers": entries}, indent=2), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def list_ledgers(data_dir: Path) -> dict[str, Any]:
+    return {"schema_version": 1, "ledgers": _registrations(data_dir)}
+
+
+def register_ledger(data_dir: Path, manifest: Path, root: Path | None = None) -> dict[str, Any]:
+    """Record an explicit ledger path (and optional checkout root) after it validates.
+
+    Registration stores two paths only. It copies nothing from the ledger and grants no trust.
+    """
+    manifest = manifest.resolve()
+    root = root.resolve() if root is not None else None
+    registry, raw = _read_registry(manifest)
+    if root is not None and not root.is_dir():
+        raise AlmExchangeError("unavailable", "Workspace root is not a directory.")
+    entries = [entry for entry in _registrations(data_dir) if entry["manifest"] != str(manifest)]
+    if len(entries) >= MAX_LEDGERS:
+        raise AlmExchangeError("limit", f"At most {MAX_LEDGERS} ledgers can be registered.")
+    entry = {"manifest": str(manifest), "root": str(root) if root is not None else None, "enabled": True,
+             "registered_at": datetime.now(timezone.utc).isoformat()}
+    _save(data_dir, entries + [entry])
+    return {"registered": entry, "ledger": {"sha256": hashlib.sha256(raw).hexdigest(), "entries": len(registry.records)},
+            "trusted": False, "notice": NOTICE}
+
+
+def disable_ledger(data_dir: Path, manifest: Path) -> dict[str, Any]:
+    manifest = manifest.resolve()
+    entries = _registrations(data_dir)
+    matches = [entry for entry in entries if entry["manifest"] == str(manifest)]
+    if not matches:
+        raise AlmExchangeError("not_found", "That ledger is not registered.", 404)
+    matches[0]["enabled"] = False
+    _save(data_dir, entries)
+    return {"disabled": matches[0]}
+
+
+def _workspace_state(root: Path | None, name: str, expected: str) -> str:
+    """Compare one recorded digest with the file under the registered root, without raising."""
+    if root is None:
+        return "not_compared"
+    relative = Path(*name.split("/"))
+    try:
+        target = (root / relative).resolve()
+        if root.resolve() not in target.parents or not target.is_file():
+            return "missing"
+        if target.stat().st_size > MAX_COMPARED_FILE_BYTES:
+            return "changed"
+        return "match" if hashlib.sha256(target.read_bytes()).hexdigest() == expected else "changed"
+    except OSError:
+        return "missing"
+
+
+def ledger_components(data_dir: Path, query: str = "", limit: int = 20) -> dict[str, Any]:
+    """Components of every enabled registered ledger, matched lexically against `query`.
+
+    Ledgers are read and validated on each call. A ledger that fails is reported, not
+    raised, so one bad file does not hide the others. File content is matched but never
+    returned. Relevance is not suitability, and nothing here is trusted.
+    """
+    registered = _registrations(data_dir)
+    enabled = [entry for entry in registered if entry["enabled"]]
+    tokens = [token for token in re.findall(r"[a-z0-9_]+", query.lower()) if len(token) >= 2]
+    ledgers: list[dict[str, Any]] = []
+    scored: list[tuple[int, str, str, dict[str, Any]]] = []
+    for entry in enabled:
+        manifest = Path(entry["manifest"])
+        root = Path(entry["root"]) if entry["root"] else None
+        try:
+            registry, raw = _read_registry(manifest)
+        except AlmExchangeError as exc:
+            ledgers.append({"manifest": entry["manifest"], "root": entry["root"], "status": "failed", "code": exc.code})
+            continue
+        ledger_digest = hashlib.sha256(raw).hexdigest()
+        root_available = root is not None and root.is_dir()
+        drifted = 0
+        for record in registry.records.values():
+            if record["kind"] in LIFECYCLE_KINDS:
+                continue
+            files = [{"path": item["path"], "sha256": item["sha256"],
+                      "workspace": _workspace_state(root if root_available else None, item["path"], item["sha256"])}
+                     for item in record["files"]]
+            states = {item["workspace"] for item in files}
+            drift = None if states == {"not_compared"} else bool(states & {"changed", "missing"})
+            drifted += bool(drift)
+            name = record["id"].lower()
+            blob = " ".join([record["kind"], record["origin"]["repository"], record["origin"]["locator"],
+                             *(item["path"] for item in record["files"]),
+                             *(item["content"] for item in record["files"])]).lower()
+            score = sum(5 if token in name else 2 if token in blob else 0 for token in tokens) if tokens else 1
+            if score:
+                scored.append((-score, record["id"], record["version"], {
+                    "id": record["id"], "category": "alm_component", "kind": record["kind"],
+                    "version": record["version"], "revision": record["revision"],
+                    "ref": f"alm:{record['id']}@{record['version']}",
+                    "origin": record["origin"], "dependencies": record["dependencies"], "files": files,
+                    "workspace_drift": drift, "ledger_sha256": ledger_digest, "manifest": entry["manifest"],
+                    "trusted": False,
+                }))
+        ledgers.append({"manifest": entry["manifest"], "root": entry["root"], "status": "read",
+                        "sha256": ledger_digest, "entries": len(registry.records),
+                        "root_compared": root_available, "components_with_drift": drifted})
+    scored.sort(key=lambda item: item[:3])
+    return {"registered": len(registered), "enabled": len(enabled), "ledgers": ledgers,
+            "total": len(scored), "components": [item[3] for item in scored[:limit]], "notice": NOTICE}

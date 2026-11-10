@@ -301,6 +301,7 @@ class PhoneHome:
             warnings.append(f"Canonical capability read failed: {exc}")
         modules, module_coverage, module_warnings = scan_network_modules(self.factory_root, self.network_root, q)
         warnings.extend(module_warnings)
+        alm = self._alm_components(q, limit, warnings)
         tools = capabilities["existing_tools_and_modules"]
         for item in tools:
             item["status"] = entities.get(item["id"], {}).get("status", item.get("status", "unverified"))
@@ -364,11 +365,32 @@ class PhoneHome:
             "schema_version": 1, "query": q, "checked_at": utc_now(), "mode": "read-only-advisory",
             "coverage": {"canonical_available": canonical_available, "factory_root": str(self.factory_root),
                          "network_root": str(self.network_root), "fabric": freshness, "modules": module_coverage,
-                         "complete_network_inventory": False},
+                         "alm_ledgers": alm["coverage"], "complete_network_inventory": False},
             "warnings": warnings,
             "decision_ladder": ladder,
             "existing_tools_and_modules": (tools + modules)[:limit],
             "related_patterns": capabilities["related_patterns"][:limit],
             "prior_findings_and_decisions": capabilities["have_we_solved_this_before"][:limit],
+            "alm_ledger_components": alm["components"],
             "provisional_intake": self.list(q, limit),
         }
+
+    def _alm_components(self, query: str, limit: int, warnings: list[str]) -> dict[str, Any]:
+        """Components from explicitly registered ALM ledgers; listed apart from the decision ladder."""
+        from . import alm_exchange
+        try:
+            found = alm_exchange.ledger_components(self.data_dir, query, limit)
+        except alm_exchange.AlmExchangeError as exc:
+            warnings.append(f"ALM ledger registrations unavailable ({exc.code}).")
+            return {"components": [], "coverage": {"registered": None, "read": 0, "failed": 0}}
+        failed = [item for item in found["ledgers"] if item["status"] == "failed"]
+        for item in failed:
+            warnings.append(f"Registered ALM ledger could not be read ({item['code']}): {item['manifest']}")
+        if any(item.get("components_with_drift") for item in found["ledgers"]):
+            warnings.append("Some ALM ledger components differ from the files in their registered checkout.")
+        if found["components"]:
+            warnings.append("ALM ledger components are unevaluated recorded assertions, not trusted or approved; "
+                            "they are listed for review and are not decision-ladder evidence.")
+        return {"components": found["components"],
+                "coverage": {"registered": found["registered"], "read": len(found["ledgers"]) - len(failed),
+                             "failed": len(failed)}}

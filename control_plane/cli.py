@@ -48,6 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
     alm_inspect.add_argument("--root", type=Path, help="Also compare recorded file digests with files under this directory")
     alm_inspect.add_argument("--kind", default="", help="Only components of this kind, e.g. skill, prompt, agent")
     alm_inspect.add_argument("--id", default="", dest="component_id", help="Only the component with this ID")
+    alm_register = alm.add_parser(
+        "register", help="Name a ledger (and optionally its checkout) for the reuse check; stores two paths only",
+    )
+    alm_register.add_argument("--manifest", type=Path, required=True)
+    alm_register.add_argument("--root", type=Path, help="Checkout to compare recorded file digests with at query time")
+    alm.add_parser("disable", help="Stop reading a registered ledger").add_argument("--manifest", type=Path, required=True)
+    alm.add_parser("list", help="Show registered ledgers")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -132,9 +139,16 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(index.index_hub(args.library), indent=2, ensure_ascii=False))
             return 0
         if args.command == "alm":
-            from .alm_exchange import inspect_ledger
-            print(json.dumps(inspect_ledger(args.manifest, args.root, args.kind, args.component_id),
-                             indent=2, ensure_ascii=False))
+            from . import alm_exchange
+            if args.alm_operation == "inspect":
+                result = alm_exchange.inspect_ledger(args.manifest, args.root, args.kind, args.component_id)
+            elif args.alm_operation == "register":
+                result = alm_exchange.register_ledger(args.data_dir, args.manifest, args.root)
+            elif args.alm_operation == "disable":
+                result = alm_exchange.disable_ledger(args.data_dir, args.manifest)
+            else:
+                result = alm_exchange.list_ledgers(args.data_dir)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
             return 0
         if args.command == "digest":
             from .repo_metabolizer import RepositoryMetabolizer
