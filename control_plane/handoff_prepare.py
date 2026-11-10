@@ -7,19 +7,17 @@ packet lands in the unencrypted, exportable phone-home inbox.
 
 from __future__ import annotations
 
-from contextlib import closing
 import json
 import re
 import sqlite3
 from typing import Any
 
+from . import handoff_search
 from .precedents import STOP_WORDS
 
 MAX_PER_SOURCE = 10
 MAX_TERMS = 24
 MAX_REFS = 20
-MAX_HANDOFFS_SCANNED = 500
-ACTION_PREVIEW_CHARS = 200
 TOKEN_RE = re.compile(r"[A-Za-z0-9_-]+")
 SOURCES = ("handoff", "fabric", "conversation-hub")
 NOTICE = (
@@ -108,41 +106,6 @@ def _terms(clean: dict[str, Any]) -> list[str]:
     return terms
 
 
-def _past_handoffs(service: Any, clean: dict[str, Any], terms: list[str]) -> tuple[list[dict[str, Any]], int]:
-    """Earlier packets sharing a scope label or search terms, with their latest reported outcome."""
-    scopes = set(clean["scope"])
-    wanted = set(terms)
-    with closing(service._connect()) as conn:
-        rows = conn.execute(
-            """SELECT p.id, p.submitted_at, p.digest, p.payload,
-                (SELECT json_extract(r.payload,'$.outcome') FROM submissions r
-                 WHERE json_extract(r.payload,'$.kind')='operational_result'
-                 AND json_extract(r.payload,'$.handoff_id')=json_extract(p.payload,'$.handoff_id')
-                 ORDER BY r.rowid DESC LIMIT 1) AS outcome
-            FROM submissions p WHERE json_extract(p.payload,'$.kind')='operational_handoff'
-            ORDER BY p.rowid DESC LIMIT ?""",
-            (MAX_HANDOFFS_SCANNED,),
-        ).fetchall()
-    scored = []
-    for order, row in enumerate(rows):
-        packet = json.loads(row["payload"])
-        shared_scope = sorted(scopes & set(packet["scope"]))
-        action = packet.get("requested_action", "")
-        words = set(TOKEN_RE.findall(" ".join([action, *packet["scope"]]).lower()))
-        shared_terms = sorted(wanted & words)
-        if not shared_scope and not shared_terms:
-            continue
-        scored.append((-len(shared_scope), -len(shared_terms), order, {
-            "source": "handoff", "ref": "handoff:" + packet["handoff_id"],
-            "revision": "sha256:" + row["digest"], "mode": packet["mode"],
-            "state": row["outcome"] or "received", "recipient": packet["recipient"],
-            "submitted_at": row["submitted_at"], "shared_scope": shared_scope,
-            "shared_terms": shared_terms, "requested_action": action[:ACTION_PREVIEW_CHARS],
-        }))
-    scored.sort(key=lambda item: item[:3])
-    return [item[3] for item in scored[:clean["limit"]]], len(rows)
-
-
 def _fabric_records(service: Any, query: str, limit: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     fabric = service.fabric
     if not fabric.db_path.is_file() or not fabric.freshness()["built"]:
@@ -187,7 +150,7 @@ def prepare(service: Any, payload: Any) -> dict[str, Any]:
         raise PhoneHomeError("query must contain at least one searchable term")
     query = " ".join(terms)
     limit = clean["limit"]
-    handoffs, scanned = _past_handoffs(service, clean, terms)
+    handoffs, scanned = handoff_search.related(service, clean["scope"], terms, limit)
     coverage: dict[str, Any] = {"handoff": {"searched": True, "packets_scanned": scanned}}
     try:
         records, coverage["fabric"] = _fabric_records(service, query, limit) if terms else (

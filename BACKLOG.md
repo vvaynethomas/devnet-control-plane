@@ -40,8 +40,9 @@ drafts a packet whose `source_refs` cite related past handoffs, Fabric records a
 indexed Conversation Hub conversations. References only, no conversation text; it
 stores, submits and builds nothing. Synthetic service and SDK stdio tests cover it;
 one run against the operator's real index was checked by counts only. Not automatic
-dispatch, live cross-agent state or DNCP-010 acceptance. Still open: stored handoffs
-and results as searchable Fabric precedent, and a workbench surface.
+dispatch, live cross-agent state or DNCP-010 acceptance. Read-only `handoff_search`
+ranks stored packets and results in any state, in memory with no cache, and
+preparation now matches on context and result text too. Still open: a workbench surface.
 
 The following table preserves the **baseline audit**. Subsequent phone-home, digester and
 ownership changes are recorded below; baseline missing-CLI/registry statements

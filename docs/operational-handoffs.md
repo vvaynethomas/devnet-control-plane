@@ -74,7 +74,7 @@ Three local sources are searched:
 
 | Source | What matches | Reference written to the draft |
 |---|---|---|
-| Past handoffs | The newest 500 packets in this inbox that share an exact scope label or a search term in their requested action or scope; ordered by shared scope, shared terms, then recency. Each match reports its latest caller-reported state. | `handoff:<handoff_id>`, revision `sha256:<content digest>` |
+| Past handoffs | The newest 500 packets in this inbox that share an exact scope label or match a search term anywhere in the packet or its reported results (see ranked search below); ordered by shared scope, relevance, then recency. Each match reports its latest caller-reported state and a 200-character preview of the requested action, never context or result text. | `handoff:<handoff_id>`, revision `sha256:<content digest>` |
 | Fabric records | Lexical matches among knowledge and registry records in an already built Fabric cache. Ambient local session transcripts are excluded. | the record ID, revision `null` |
 | Conversation Hub | Lexical matches in the explicitly indexed library (see [the consumer contract](conversation-library-consumer.md#fabric-index-over-the-library)). | `conversation-hub://<id>/<revision>#message=<n>`, revision pinned |
 
@@ -93,6 +93,31 @@ sources were searched: an unbuilt Fabric cache or an unindexed library is
 reported there, not treated as "no precedent". Matches are lexical relevance,
 not applicability, trust or endorsement, and referenced material remains
 untrusted historical data.
+
+## Ranked search over stored handoffs
+
+`PhoneHome.handoff_search(query="", scope="", recipient="", state="", limit=10)`
+and the MCP tool `handoff_search` are read-only and return past handoffs in
+**any** state, including completed ones that `handoff_list` hides. This makes
+earlier exchanges, and how they ended, retrievable as precedent.
+
+With a query, packets are ranked by FTS5 bm25 over the requested action
+(weighted highest), scope labels, context snapshot, blockers and every reported
+result's summary and blockers, with Porter stemming; any query term may match.
+Without a query they are listed newest first. `scope` and `recipient` are exact,
+case-sensitive filters and `state` is one of `received`, `blocked`, `preview`
+or `completed` (the latest caller-reported outcome). Each entry carries the
+`handoff:<id>` reference and content digest, mode, sender, recipient, scope,
+state, timestamps, result count, a 200-character preview of the requested
+action, the latest blockers when blocked, and, for a query, a short bracketed
+snippet of the matching text. Use `handoff_get` for the full packet.
+
+Nothing is cached or indexed on disk: each call loads the newest 500 packets
+and ranks them in a temporary in-memory table, so results cannot be stale and
+no second copy of inbox text exists. `scanned` and `truncated` report when
+older packets were left out. Stored handoffs are deliberately **not** added to
+the Fabric cache or to `devnet_search_fabric`. Ranking is lexical relevance
+only; a reported outcome is not verified completion.
 
 ## Trust and storage boundaries
 
