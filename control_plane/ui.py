@@ -1045,6 +1045,62 @@ class ControlPlaneWorkbench:
             <tbody>{''.join(tool_rows)}</tbody>
           </table>
         </section>
+        {self.render_alm_components_panel(problem_query)}
+        """
+
+    def render_alm_components_panel(self, query: str = "") -> str:
+        """Components of explicitly registered ALM ledgers, read at render time. Read-only."""
+        from . import alm_exchange
+        heading = '<h2>4. "Is There a Recorded Agent, Skill or Prompt?" (registered ALM ledgers)</h2>'
+        try:
+            found = alm_exchange.ledger_components(self.data_dir, query, 20)
+        except alm_exchange.AlmExchangeError as exc:
+            return (f'<section class="panel">{heading}<p class="muted">ALM ledger registrations are unavailable '
+                    f'(<code>{escape(exc.code)}</code>).</p></section>')
+        if not found["registered"]:
+            return (f'<section class="panel">{heading}<p class="muted">No ALM ledger is registered. Name one with '
+                    '<code>devnet alm register --manifest &lt;ledger.json&gt; --root &lt;checkout&gt;</code>; '
+                    'registration stores two paths and copies nothing.</p></section>')
+        ledger_rows = []
+        for item in found["ledgers"]:
+            if item["status"] == "read":
+                drift = (_badge(f"{item['components_with_drift']} with drift", "warn") if item["components_with_drift"]
+                         else _badge("no drift", "good") if item["root_compared"] else _badge("not compared", "neutral"))
+                state = f"{_badge('read', 'good')} {item['entries']} entries, <code>{escape(item['sha256'][:12])}</code>"
+            else:
+                drift, state = "", f"{_badge('failed', 'bad')} <code>{escape(item['code'])}</code>"
+            ledger_rows.append(f"<tr><td><code>{escape(item['manifest'])}</code></td><td>{state}</td>"
+                               f"<td><code>{escape(item['root'] or '')}</code> {drift}</td></tr>")
+        tones = {"match": "good", "changed": "warn", "missing": "bad", "not_compared": "neutral"}
+        rows = []
+        for item in found["components"]:
+            files = "".join(f"<div><code>{escape(entry['path'])}</code> {_badge(entry['workspace'], tones[entry['workspace']])}</div>"
+                            for entry in item["files"])
+            rows.append(
+                f"<tr><td><code>{escape(item['ref'])}</code><div>{_badge(item['kind'], 'neutral')} "
+                f"{_badge('unevaluated', 'warn')}</div></td>"
+                f"<td><code>{escape(item['revision'][:12])}</code></td>"
+                f"<td><code>{escape(item['origin']['repository'])}</code>"
+                f"<div class=\"muted\" style=\"font-size:0.8rem;\">{len(item['dependencies'])} pinned dependencies</div></td>"
+                f"<td>{files}</td></tr>")
+        disabled = found["registered"] - found["enabled"]
+        counts = (f"{found['enabled']} enabled ledger(s)" + (f", {disabled} disabled" if disabled else "")
+                  + f"; showing {len(rows)} of {found['total']} matching component(s).")
+        table = (f"<table><thead><tr><th>Reference</th><th>Revision</th><th>Origin</th><th>Files vs. registered checkout</th>"
+                 f"</tr></thead><tbody>{''.join(rows)}</tbody></table>" if rows
+                 else '<p class="muted">No recorded component matches this query.</p>')
+        return f"""
+        <section class="panel">
+          {heading}
+          <p class="muted">{escape(alm_exchange.NOTICE)} Listed for review only; these are not decision-ladder
+          evidence, and file content is matched but never shown. {escape(counts)}</p>
+          <table>
+            <thead><tr><th>Ledger</th><th>State</th><th>Checkout</th></tr></thead>
+            <tbody>{''.join(ledger_rows)}</tbody>
+          </table>
+          {table}
+          <p class="muted" style="font-size:0.8rem;">JSON: <code>/api/alm-components?q=…</code>. Manage with <code>devnet alm list|register|disable</code>.</p>
+        </section>
         """
 
     def render_phone_home(self, query: str = "") -> str:
@@ -1862,6 +1918,13 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             if parsed.path == "/api/capabilities":
                 prob = qs.get("prob", [""])[0]
                 self._send_json(discover_capabilities(prob, workbench.factory_root, workbench.fabric))
+                return
+            if parsed.path == "/api/alm-components":
+                from . import alm_exchange
+                try:
+                    self._send_json(alm_exchange.ledger_components(workbench.data_dir, qs.get("q", [""])[0][:2000], 20))
+                except alm_exchange.AlmExchangeError as exc:
+                    self._send_json({"error": str(exc), "code": exc.code}, status=exc.status)
                 return
             if parsed.path == "/api/decision-aid":
                 try:

@@ -132,7 +132,12 @@ agent, prompt or skill revision it concerns. For citations only identity, origin
 paths are matched, not file content. See
 [the handoff contract](operational-handoffs.md#preparing-a-packet-with-retrieved-references).
 
-Still open under DNCP-012: the workbench Capabilities tab does not show ledger
-components; the offline wheel path. Copying skill or prompt files
+The workbench Capabilities tab lists the same components in a fourth section
+(ledger state, reference, revision, origin and per-file drift), filtered by the tab's
+problem query and read at render time; `/api/alm-components?q=` returns the JSON. The
+section is read-only: registration stays on the CLI. It was tested by rendering against
+synthetic ledgers, not looked at in a browser.
+
+Still open under DNCP-012: the offline wheel path. Copying skill or prompt files
 into DNCP or agent configuration is deliberately not planned. Priority (P3), ownership and
 acceptance are unchanged.
