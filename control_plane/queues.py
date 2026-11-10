@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from . import DEV_NETWORK_ROOT, FACTORY_ROOT
+from .layout import main_checkout
 
 ID_PATTERN = re.compile(r"\b(SRC|FND|PAT|DEC|PRM|WF|RUN|SKL|PRJ|ART|BL|ALM|LP|CAT)-\d{3,4}\b")
 
@@ -189,7 +190,8 @@ def aggregate_queues(
     for ext_slug, ext_id, ext_title in [
         ("digital-asset-catalog", "PRJ-0001-EXT", "Digital Asset Catalog (Standalone Repo)"),
     ]:
-        ext_backlog = network_root / ext_slug / "BACKLOG.md"
+        external_checkout = main_checkout(network_root, ext_slug)
+        ext_backlog = external_checkout / "BACKLOG.md" if external_checkout else network_root / ext_slug / "BACKLOG.md"
         if ext_backlog.is_file():
             all_items.extend(
                 _parse_backlog_markdown(
