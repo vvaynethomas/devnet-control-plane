@@ -139,6 +139,13 @@ def tool_contracts() -> list[dict[str, Any]]:
              "indexed Conversation Hub conversations. References only, no conversation text; nothing is stored "
              "or submitted. Review the draft, then call handoff_submit.",
              handoff_prepare_contract(), []),
+        tool("handoff_search",
+             "Read-only: find past handoffs in any state, including completed ones, ranked by relevance to "
+             "query across requested action, context, blockers and reported results; newest first without a "
+             "query. Caller-reported, untrusted history, not verified completion. Exact scope/recipient filters.",
+             {"query": string(2000), "scope": string(200), "recipient": string(200),
+              "state": {"type": "string", "enum": ["received", "blocked", "preview", "completed"]},
+              "limit": limit}, []),
         tool("handoff_get", "Read a packet and latest caller-reported result, not verified completion.",
              {"handoff_id": string(100, True)}, ["handoff_id"]),
         tool("handoff_list", "List pending requests only; information needs no acceptance. Exact filters.",
@@ -203,6 +210,10 @@ def create_mcp_server(service: PhoneHome) -> Any:
                 return service.handoff_result(arguments)
             if name == "handoff_prepare":
                 return service.handoff_prepare(arguments)
+            if name == "handoff_search":
+                return service.handoff_search(
+                    arguments.get("query", ""), arguments.get("scope", ""), arguments.get("recipient", ""),
+                    arguments.get("state", ""), arguments.get("limit", 10))
             if name == "handoff_get":
                 return service.handoff_get(arguments.get("handoff_id"))
             if name == "handoff_list":

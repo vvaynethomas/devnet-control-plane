@@ -180,6 +180,12 @@ class PhoneHome:
         from .handoff_prepare import prepare
         return prepare(self, payload)
 
+    def handoff_search(self, query: str = "", scope: str = "", recipient: str = "", state: str = "",
+                       limit: int = 10) -> dict[str, Any]:
+        """Read-only ranked search over stored packets and results in any state."""
+        from .handoff_search import search
+        return search(self, query, scope, recipient, state, limit)
+
     def handoff_get(self, handoff_id: str) -> dict[str, Any]:
         packet = self.get("HANDOFF-" + text_field(handoff_id, "handoff_id", 100))
         with closing(self._connect()) as conn:

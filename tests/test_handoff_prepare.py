@@ -130,15 +130,30 @@ class HandoffPrepareTests(unittest.TestCase):
         self.assertEqual(len({(r["ref"], r["revision"]) for r in repeat["draft"]["source_refs"]}),
                          len(repeat["draft"]["source_refs"]))
 
-    def test_scope_alone_finds_earlier_handoffs_only_by_exact_label(self) -> None:
+    def test_scope_alone_ranks_exact_label_matches_before_text_matches(self) -> None:
         self.service.handoff_submit(packet("a", ["billing"], "Reconcile invoices."))
         self.service.handoff_submit(packet("b", ["billing-eu"], "Unrelated task."))
         info = packet("c", ["billing"], "x", mode="information")
         del info["requested_action"]
         self.service.handoff_submit(info)
         result = self.service.handoff_prepare({"scope": ["billing"]})
-        self.assertEqual([m["ref"] for m in result["matches"]], ["handoff:c", "handoff:a"])
+        # "billing-eu" is not the same label, but its text still matches the term "billing".
+        self.assertEqual([(m["ref"], m["shared_scope"]) for m in result["matches"]],
+                         [("handoff:c", ["billing"]), ("handoff:a", ["billing"]), ("handoff:b", [])])
         self.assertEqual(result["matches"][0]["mode"], "information")
+
+    def test_earlier_handoffs_match_on_context_and_reported_results(self) -> None:
+        self.service.handoff_submit(packet("ctx", ["x"], "Do the thing.", context_snapshot="Concerns the heron ledger."))
+        self.service.handoff_submit(packet("res", ["y"], "Do another thing."))
+        self.service.handoff_result({
+            "result_id": "res-1", "handoff_id": "res", "responder": "synthetic-recipient", "outcome": "completed",
+            "summary": "Heron ledger reconciled.", "blockers": [], "source_refs": []})
+        self.service.handoff_submit(packet("none", ["z"], "Unrelated."))
+        result = self.service.handoff_prepare({"query": "herons ledger", "scope": ["x"]})
+        self.assertEqual([m["ref"] for m in result["matches"]], ["handoff:ctx", "handoff:res"])
+        self.assertEqual([(m["shared_scope"], m["matched_text"], m["state"]) for m in result["matches"]],
+                         [(["x"], True, "received"), ([], True, "completed")])
+        self.assertNotIn("heron", json.dumps(result["matches"]).lower())
 
     def test_invalid_input_is_refused_without_echoing_it(self) -> None:
         secret = "ghp_" + "a" * 30
