@@ -177,6 +177,16 @@ class HubIndexTests(unittest.TestCase):
         self.assertNotIn(secret, stored)
         self.assertIn("[REDACTED_SECRET]", stored)
 
+    def test_workbench_escapes_markup_in_indexed_text(self) -> None:
+        from control_plane.ui import _snippet_html
+        self.add(record("alpha", [("user", "<script>alert(1)</script> beside the meerkat <img src=x onerror=y>")]))
+        self.fabric.index_hub(self.library)
+        rendered = _snippet_html(self.search("meerkat")[0]["snippet"])
+        self.assertIn("<mark>meerkat</mark>", rendered)
+        self.assertNotIn("<script>", rendered)
+        self.assertNotIn("<img", rendered)
+        self.assertIn("&lt;script&gt;", rendered)
+
     def test_fabric_rebuild_keeps_the_hub_index(self) -> None:
         self.add(record("alpha", [("user", "durable tapir")]))
         self.fabric.index_hub(self.library)

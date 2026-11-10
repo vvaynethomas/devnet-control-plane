@@ -33,6 +33,11 @@ def _copy_attributes(text: str) -> str:
     )
 
 
+def _snippet_html(snippet: str) -> str:
+    """Escape indexed text, then restore only the FTS5 highlight tags."""
+    return escape(snippet).replace("&lt;mark&gt;", "<mark>").replace("&lt;/mark&gt;", "</mark>")
+
+
 def _chip_link(eid: str) -> str:
     return f'<a class="chip" href="/?tab=fabric&amp;entity={escape(eid)}">{escape(eid)}</a>'
 
@@ -635,7 +640,7 @@ class ControlPlaneWorkbench:
         for r in search_data["results"]:
             up_chips = "".join(_chip_link(u) for u in r["upstream_refs"][:5])
             down_chips = "".join(_chip_link(d) for d in r["downstream_refs"][:5])
-            snippet_html = r["snippet"] if "<mark>" in r["snippet"] else escape(r["snippet"])
+            snippet_html = _snippet_html(r["snippet"])
             result_rows.append(
                 f"""
                 <tr>
