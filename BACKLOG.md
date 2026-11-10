@@ -187,8 +187,7 @@ indexed to a temporary cache with aggregate evidence only; see
 Conversations tab lists matches from the index. Since 2026-11-10 segmentation and
 redaction are done by the pinned Material Core 0.2.0rc1 (`segment_messages`), so
 `index-hub` requires the `material` extra and has no local fallback. Still open:
-Handoff integration, entity-mention links, rank-based merging of Hub and Fabric
-results, contract approval (DEC-0016 remains draft) and owner acceptance. No watcher, sync or
+Handoff integration, entity-mention links, contract approval (DEC-0016 remains draft) and owner acceptance. No watcher, sync or
 background scan is added.
 
 ## Provisional Direction: Repository as the First Digestible Material

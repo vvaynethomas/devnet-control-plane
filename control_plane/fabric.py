@@ -556,13 +556,23 @@ class FabricIndex:
             rows = conn.execute(sql, params).fetchall() if has_items else []
             results = [{**self._format_row(r, snippet=r["match_snippet"]), "rank_score": r["rank_score"]} for r in rows]
             if include_hub:
-                # Both scores are FTS5 bm25 (lower is better); interleave and keep the best `limit`.
-                results.extend(hub_index.search(conn, fts_query, limit))
-                results.sort(key=lambda item: item["rank_score"])
-                results = results[:limit]
+                results = self._interleave(results, hub_index.search(conn, fts_query, limit), limit)
             for item in results:
                 item.pop("rank_score", None)
             return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": results}
+
+    @staticmethod
+    def _interleave(records: list[dict[str, Any]], conversations: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        """Alternate two ranked lists, records first, keeping each list's own order.
+
+        The lists come from separate FTS5 tables, so their bm25 scores are computed against
+        different corpus statistics and cannot be compared; only rank within a list is used.
+        When one list runs out, the rest of the other follows.
+        """
+        merged: list[dict[str, Any]] = []
+        for index in range(max(len(records), len(conversations))):
+            merged.extend(source[index] for source in (records, conversations) if index < len(source))
+        return merged[:limit]
 
     @staticmethod
     def _fts_query(query: str) -> str:

@@ -248,8 +248,9 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   with `id: "hub:<conversation_id>"`, the matching `revision`, `revision_count`,
   `message_offset` and a `conversation-hub://` locator. Every revision is
   indexed; results show the best-ranked chunk per conversation and never label a
-  revision current. Hub and Fabric hits are interleaved by FTS5 bm25 score, which
-  is lexical relevance only. Entity-ID mentions in Hub text are not linked into
+  revision current. Hub and Fabric hits alternate by rank within each source, Fabric
+  record first; their bm25 scores come from separate tables and are not compared,
+  so neither source can crowd out the other. Ranking is lexical relevance only. Entity-ID mentions in Hub text are not linked into
   the provenance graph. Phone-home checks, capability discovery and repository
   digests do not opt in, so indexed conversation text does not enter their
   output or stored proposals.
