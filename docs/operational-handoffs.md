@@ -113,6 +113,13 @@ state, timestamps, result count, a 200-character preview of the requested
 action, the latest blockers when blocked, and, for a query, a short bracketed
 snippet of the matching text. Use `handoff_get` for the full packet.
 
+The workbench Queues tab shows the same search (query and state filter, 20
+entries) and can display a prepared draft for a query. Both are read-only, with
+JSON at `/api/handoffs?q=&state=&scope=&recipient=`, `/api/handoffs?id=` and
+`/api/handoff-prepare?q=`. Submitting still goes through `handoff_submit`. The
+panel was tested by rendering against synthetic packets, not looked at in a
+browser.
+
 Nothing is cached or indexed on disk: each call loads the newest 500 packets
 and ranks them in a temporary in-memory table, so results cannot be stale and
 no second copy of inbox text exists. `scanned` and `truncated` report when
