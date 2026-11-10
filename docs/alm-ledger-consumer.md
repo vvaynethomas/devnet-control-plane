@@ -126,7 +126,13 @@ is **not exercised** by a real or synthetic ledger. The isolated install matrix
 The operator's own data directory has no registered ledger; the reuse check was
 exercised against the two candidate ledgers through a temporary data directory only.
 
+`handoff_prepare` cites matching components of registered ledgers as
+`alm:<id>@<version>` with the record's revision hash, so a handoff can name the exact
+agent, prompt or skill revision it concerns. For citations only identity, origin and file
+paths are matched, not file content. See
+[the handoff contract](operational-handoffs.md#preparing-a-packet-with-retrieved-references).
+
 Still open under DNCP-012: the workbench Capabilities tab does not show ledger
-components; citing component revisions from `handoff_prepare`; the offline wheel path. Copying skill or prompt files
+components; the offline wheel path. Copying skill or prompt files
 into DNCP or agent configuration is deliberately not planned. Priority (P3), ownership and
 acceptance are unchanged.
