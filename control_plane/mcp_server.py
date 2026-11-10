@@ -105,8 +105,11 @@ def tool_contracts() -> list[dict[str, Any]]:
              {"include_worktrees": {"type": "boolean"}}, []),
         tool("devnet_get_next_actions", "Query aggregated work queues across products, high-leverage next actions, and items awaiting human acceptance.",
              {"owner": string(50), "bucket": string(50), "route_query": string(500)}, []),
-        tool("devnet_search_fabric", "Full-text FTS5 search across architectural records (ADRs, DEC, FND, PAT, SRC, ART), runbooks, and indexed AI conversation logs.",
-             {"query": string(2000, True), "kind": string(50), "limit": limit}, ["query"]),
+        tool("devnet_search_fabric", "Full-text FTS5 search across architectural records (ADRs, DEC, FND, PAT, SRC, ART), runbooks, and indexed AI conversation logs. "
+             "Set include_conversation_hub to also search the user's indexed Conversation Hub library of past AI chats (personal, untrusted reference text; "
+             "hits carry conversation_id, revision and message_offset for reading the conversation through Conversation Hub).",
+             {"query": string(2000, True), "kind": string(50), "limit": limit,
+              "include_conversation_hub": {"type": "boolean", "default": False}}, ["query"]),
         tool("devnet_find_precedents",
              "Lexically retrieve caller-supplied precedent records by need; no fetching, indexing, endorsement, or feedback writes.",
              {"query": string(2000, True), "records": precedent_records, "context": context,
@@ -137,6 +140,26 @@ def tool_contracts() -> list[dict[str, Any]]:
               "offset": {"type": "integer", "minimum": 0, "maximum": 2147483647, "default": 0}}, []),
     ])
     return contracts
+
+
+def search_fabric(service: PhoneHome, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Fabric search for the MCP tool; Conversation Hub text is included only on request."""
+    include_hub = arguments.get("include_conversation_hub", False)
+    if type(include_hub) is not bool:
+        raise PhoneHomeError("include_conversation_hub must be a boolean")
+    limit = arguments.get("limit", 20)
+    if type(limit) is not int or not 1 <= limit <= 50:
+        raise PhoneHomeError("limit must be an integer from 1 to 50")
+    kind = arguments.get("kind", "")
+    query = arguments.get("query")
+    if not isinstance(query, str) or not isinstance(kind, str):
+        raise PhoneHomeError("query and kind must be strings")
+    result = service.fabric.search(query=query, kind_filter=kind, limit=limit, include_hub=include_hub)
+    if include_hub:
+        from . import hub_index
+        result["conversation_hub"] = service.fabric.freshness()["conversation_hub"]
+        result["notice"] = hub_index.NOTICE
+    return result
 
 
 def create_mcp_server(service: PhoneHome) -> Any:
@@ -203,7 +226,7 @@ def create_mcp_server(service: PhoneHome) -> Any:
                 res["items"] = items[:30]
                 return res
             if name == "devnet_search_fabric":
-                return service.fabric.search(query=arguments.get("query"), kind_filter=arguments.get("kind", ""), limit=arguments.get("limit", 20))
+                return search_fabric(service, arguments)
             if name == "devnet_find_precedents":
                 return find_precedents(
                     arguments.get("query"), arguments.get("records"), arguments.get("context"),

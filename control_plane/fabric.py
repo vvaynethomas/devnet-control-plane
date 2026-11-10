@@ -535,9 +535,7 @@ class FabricIndex:
                     results.extend(hub_index.recent(conn, limit - len(results)))
                 return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": results}
 
-            # Sanitize FTS5 query tokens
-            tokens = re.findall(r"[A-Za-z0-9_-]+", q)
-            fts_query = " OR ".join(f'"{t}"' for t in tokens if t)
+            fts_query = self._fts_query(q)
             if not fts_query:
                 return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": []}
 
@@ -565,6 +563,28 @@ class FabricIndex:
             for item in results:
                 item.pop("rank_score", None)
             return {"query": q, "kind_filter": kind_filter, "counts": counts, "results": results}
+
+    @staticmethod
+    def _fts_query(query: str) -> str:
+        """Sanitize free text into quoted FTS5 tokens joined by OR."""
+        return " OR ".join(f'"{t}"' for t in re.findall(r"[A-Za-z0-9_-]+", query) if t)
+
+    def search_hub(self, query: str = "", limit: int = 20) -> dict[str, Any]:
+        """Search only the indexed Conversation Hub library; never builds or harvests anything."""
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise ValueError("limit must be an integer from 1 to 50")
+        q = query.strip()
+        if not self.db_path.is_file():
+            return {"query": q, "status": hub_index.status_unbuilt(), "results": [], "notice": hub_index.NOTICE}
+        with closing(self._connect()) as conn:
+            fts_query = self._fts_query(q)
+            if not q:
+                results = hub_index.recent(conn, limit)
+            else:
+                results = hub_index.search(conn, fts_query, limit) if fts_query else []
+            for item in results:
+                item.pop("rank_score", None)
+            return {"query": q, "status": hub_index.status(conn), "results": results, "notice": hub_index.NOTICE}
 
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """Return full entity details plus resolved upstream and downstream provenance nodes."""
