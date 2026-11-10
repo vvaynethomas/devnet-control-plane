@@ -596,6 +596,14 @@ class FabricIndex:
                 item.pop("rank_score", None)
             return {"query": q, "status": hub_index.status(conn), "results": results, "notice": hub_index.NOTICE}
 
+    def hub_context_handoff(self, conversation_id: str, revision: str,
+                            max_chars: int = hub_index.CONTEXT_CHARS) -> dict[str, Any] | None:
+        """Context packet for one indexed Hub revision; never builds, harvests or reads the library."""
+        # Without a cache the arguments are still validated, against an empty in-memory database.
+        connect = self._connect if self.db_path.is_file() else (lambda: sqlite3.connect(":memory:"))
+        with closing(connect()) as conn:
+            return hub_index.context_packet(conn, conversation_id, revision, max_chars)
+
     def get_entity(self, entity_id: str) -> dict[str, Any] | None:
         """Return full entity details plus resolved upstream and downstream provenance nodes."""
         self.ensure_built()

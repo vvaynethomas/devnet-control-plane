@@ -378,6 +378,17 @@ def _layout(active_tab: str, title: str, body_html: str, flash: str = "") -> str
       showToast('Could not copy to clipboard: ' + err, 'error');
     }});
   }}
+  function copyHubHandoff(btn) {{
+    const url = '/api/hub-handoff?conversation=' + encodeURIComponent(btn.dataset.conversation)
+      + '&revision=' + encodeURIComponent(btn.dataset.revision);
+    fetch(url).then(r => r.json().then(data => ({{ok: r.ok, data}}))).then(res => {{
+      if (!res.ok || !res.data.markdown) {{
+        showToast(res.data.error || 'Handoff packet unavailable.', 'error');
+        return;
+      }}
+      copySnippet(res.data.markdown, btn);
+    }}).catch(err => showToast('Handoff packet unavailable: ' + err, 'error'));
+  }}
   function btnPulse(btn) {{
     const orig = btn.innerText;
     btn.innerText = '✓ Copied!';
@@ -1331,6 +1342,9 @@ class ControlPlaneWorkbench:
                 {_badge(r['harness'], 'good')}
                 <a href="/?tab=fabric&amp;entity={escape(r['id'])}"><strong>{escape(r['title'])}</strong></a>
                 <span class="muted" style="font-size:0.76rem;">{r['message_count']} messages · {r['revision_count']} revision(s) · {escape(r['created_date'] or '—')}</span>
+                <button class="btn" type="button" style="margin-left:auto; font-size:0.74rem; padding:2px 8px;"
+                        data-conversation="{escape(r['conversation_id'], quote=True)}" data-revision="{escape(r['revision'], quote=True)}"
+                        onclick="copyHubHandoff(this)" title="Copy the most recent indexed messages of this revision as a context packet">Copy handoff packet</button>
               </div>
               <div class="muted" style="font-size:0.83rem; margin-top:4px;">{_snippet_html(r['snippet'])}</div>
               <div class="muted" style="font-size:0.72rem; margin-top:4px;">conversation <code>{escape(r['conversation_id'])}</code> · revision <code>{escape(r['revision'])}</code> · from message {r['message_offset']}</div>
@@ -1862,6 +1876,20 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
                     self._send_json({"error": f"Decision aid unavailable: {exc}"}, status=500)
                 else:
                     self._send_json(aid)
+                return
+            if parsed.path == "/api/hub-handoff":
+                try:
+                    packet = workbench.fabric.hub_context_handoff(
+                        qs.get("conversation", [""])[0], qs.get("revision", [""])[0])
+                except ValueError as exc:
+                    self._send_json({"error": str(exc)}, status=400)
+                except (OSError, sqlite3.Error):
+                    self._send_json({"error": "Conversation Hub index unavailable."}, status=503)
+                else:
+                    if packet is None:
+                        self._send_json({"error": "That conversation revision is not indexed."}, status=404)
+                    else:
+                        self._send_json(packet)
                 return
             if parsed.path == "/api/handoff":
                 from control_plane.handoff import compile_context_handoff

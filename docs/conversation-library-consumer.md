@@ -262,6 +262,19 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   response adds the cache status and a notice that the text is untrusted
   historical reference material. The workbench escapes indexed text and restores
   only the FTS5 highlight tags.
+- **Context packet.** Each row of the Conversations tab panel has a "Copy handoff
+  packet" button. It calls the loopback endpoint
+  `/api/hub-handoff?conversation=<id>&revision=<revision>`
+  (`FabricIndex.hub_context_handoff`), which returns Markdown built from the
+  most recent indexed segments of that exact revision that fit 24,000 characters
+  (8,000 to 64,000 through the Python API), with the locator, the message
+  positions covered and a notice that the text is untrusted and may be out of
+  date. It reads the redacted cache only, never the library, and is as fresh as
+  the last `index-hub` run. The caller names the revision; none is chosen as
+  current. Unknown revisions return 404 and malformed identifiers 400. The
+  packet is copied to the clipboard and is not stored or submitted anywhere.
+  This is separate from the Antigravity transcript compiler and from the MCP
+  tools, which do not return this text.
 - **Output and errors.** The command prints counts and timings only. Failures
   use the codes above (`unavailable`, `schema_incompatible`, `library_busy`) and
   never echo paths or content. A record with another `schema_version`, an
