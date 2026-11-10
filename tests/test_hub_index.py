@@ -273,6 +273,83 @@ class HubIndexTests(unittest.TestCase):
             self.assertNotIn(raw, html)
         self.assertIn("No indexed conversation matches", panel(workbench, "absent"))
         self.assertIn("most recently updated (1)", panel(workbench, ""))
+        self.assertIn(f'data-conversation="{item["id"]}" data-revision="{item["revision"]}"', html)
+        self.assertIn("copyHubHandoff(this)", html)
+        from control_plane.ui import _layout
+        self.assertIn("function copyHubHandoff(btn)", _layout("conversations", "Conversations", html))
+
+    def test_context_packet_holds_the_most_recent_segments_of_one_exact_revision(self) -> None:
+        secret = "ghp_" + "a1B2" * 9
+        old = record("alpha", [("user", "first draft about ibis")], revision="r1")
+        messages = [("user", f"opening {secret}")] + [("assistant", f"part{n} " + "filler " * 1100) for n in range(6)]
+        messages.append(("user", "closing remark about ibis"))
+        new = record("alpha", messages, revision="r2", title="Ibis <b>notes</b>")
+        self.assertEqual(self.fabric.hub_context_handoff(new["id"], new["revision"]), None)
+        self.assertFalse(self.fabric.db_path.exists())
+        self.add(old)
+        self.add(new)
+        self.fabric.index_hub(self.library)
+        packet = self.fabric.hub_context_handoff(new["id"], new["revision"], max_chars=16_000)
+        self.assertTrue(packet["truncated"])
+        self.assertEqual((packet["last_position"], packet["message_count"]), (7, 8))
+        self.assertGreater(packet["first_position"], 0)
+        self.assertLess(packet["included_segments"], packet["total_segments"])
+        markdown = packet["markdown"]
+        self.assertIn("closing remark about ibis", markdown)
+        self.assertNotIn("opening", markdown)
+        self.assertNotIn("first draft", markdown)
+        self.assertIn(f"`conversation-hub://{new['id']}/{new['revision']}#message={packet['first_position']}`", markdown)
+        self.assertIn("2 revision(s) of this conversation are indexed and none is treated as current", markdown)
+        self.assertIn("untrusted historical reference material", markdown)
+        self.assertLess(len(markdown), 16_000 + 2_000)
+        whole = self.fabric.hub_context_handoff(new["id"], new["revision"], max_chars=64_000)
+        self.assertFalse(whole["truncated"])
+        self.assertEqual(whole["first_position"], 0)
+        self.assertIn("[REDACTED_SECRET]", whole["markdown"])
+        self.assertNotIn(secret, whole["markdown"])
+        first = self.fabric.hub_context_handoff(old["id"], old["revision"])
+        self.assertIn("first draft about ibis", first["markdown"])
+        self.assertIn("derived from the first message", first["markdown"])
+        self.assertIsNone(self.fabric.hub_context_handoff(new["id"], digest("unknown")))
+        for arguments in ((new["id"], "r2"), ("hub:" + new["id"], new["revision"]), (None, new["revision"]),
+                          (new["id"], new["revision"], 100), (new["id"], new["revision"], 64_001),
+                          (new["id"], new["revision"], True)):
+            with self.assertRaises(ValueError):
+                self.fabric.hub_context_handoff(*arguments)
+
+    def test_workbench_endpoint_serves_the_context_packet(self) -> None:
+        from http.server import ThreadingHTTPServer
+        import threading
+        import urllib.error
+        import urllib.request
+        from control_plane.ui import make_handler
+        item = record("alpha", [("user", "endpoint kiwi")])
+        self.add(item)
+        self.fabric.index_hub(self.library)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(SimpleNamespace(fabric=self.fabric)))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        base = f"http://127.0.0.1:{server.server_address[1]}/api/hub-handoff"
+
+        def get(query: str) -> tuple[int, dict]:
+            try:
+                with urllib.request.urlopen(base + query, timeout=10) as response:
+                    return response.status, json.loads(response.read())
+            except urllib.error.HTTPError as error:
+                with error:
+                    return error.code, json.loads(error.read())
+
+        status, body = get(f"?conversation={item['id']}&revision={item['revision']}")
+        self.assertEqual(status, 200)
+        self.assertIn("endpoint kiwi", body["markdown"])
+        self.assertEqual(get(f"?conversation={item['id']}&revision={digest('other')}")[0], 404)
+        status, body = get("?conversation=nope&revision=nope")
+        self.assertEqual(status, 400)
+        self.assertNotIn("nope", json.dumps(body))
+        self.assertEqual(get("")[0], 400)
 
     def test_combined_search_alternates_records_and_conversations_by_rank(self) -> None:
         records = self.factory / "knowledge"
