@@ -158,7 +158,7 @@ The workbench Capabilities tab lists the same components in a fourth section
 (ledger state, reference, revision, origin and per-file drift), filtered by the tab's
 problem query and read at render time; `/api/alm-components?q=` returns the JSON. The
 section is read-only: registration stays on the CLI. It was tested by rendering against
-synthetic ledgers, not looked at in a browser.
+synthetic ledgers, and checked in a browser on 2026-11-10 against synthetic data (and, for status codes and counts only, the operator's real data); the embedded browser denied clipboard writes, so copy buttons were verified up to the request and the error toast, not the clipboard.
 
 Copying skill or prompt files
 into DNCP or agent configuration is deliberately not planned. Priority (P3), ownership and

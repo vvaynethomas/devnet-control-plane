@@ -117,8 +117,7 @@ The workbench Queues tab shows the same search (query and state filter, 20
 entries) and can display a prepared draft for a query. Both are read-only, with
 JSON at `/api/handoffs?q=&state=&scope=&recipient=`, `/api/handoffs?id=` and
 `/api/handoff-prepare?q=`. Submitting still goes through `handoff_submit`. The
-panel was tested by rendering against synthetic packets, not looked at in a
-browser.
+panel was tested by rendering against synthetic packets and checked in a browser on 2026-11-10 against synthetic data (and, for status codes and counts only, the operator's real data); the embedded browser denied clipboard writes, so copy buttons were verified up to the request and the error toast, not the clipboard.
 
 Nothing is cached or indexed on disk: each call loads the newest 500 packets
 and ranks them in a temporary in-memory table, so results cannot be stale and

@@ -26,6 +26,15 @@ def _badge(text: str, tone: str = "neutral") -> str:
     return f'<span class="badge badge-{escape(tone)}">{escape(str(text))}</span>'
 
 
+def _inbox_label(item: dict[str, Any]) -> str:
+    """Intake submissions have a title; stored handoff packets and results do not."""
+    if item.get("kind") == "operational_handoff":
+        return f"Handoff {item['handoff_id']}: {item.get('requested_action') or item['mode']}"[:200]
+    if item.get("kind") == "operational_result":
+        return f"Result {item['result_id']} for handoff {item['handoff_id']}: {item['outcome']}"
+    return item["title"]
+
+
 def _copy_attributes(text: str) -> str:
     return (
         f'data-copy-text="{escape(json.dumps(text), quote=True)}" '
@@ -1187,7 +1196,7 @@ class ControlPlaneWorkbench:
             return f'<section class="panel"><h2>Network phone-home unavailable</h2><p>{escape(str(exc))}</p></section>'
         result = f"<pre>{escape(json.dumps(data, indent=2, ensure_ascii=False))}</pre>" if data else ""
         entries = "".join(
-            f'<li>{escape(item["title"])} (provisional) '
+            f'<li>{escape(_inbox_label(item))} ({escape(item["status"])}) '
             f'<a href="/api/phone-home/submissions?id={escape(item["id"])}">Review / JSON export</a></li>'
             for item in inbox["submissions"]
         )
