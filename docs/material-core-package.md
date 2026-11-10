@@ -125,6 +125,11 @@ evidence. The process caches its checked core, so reload after intentional updat
 
 ## Combined optional consumers
 
+The `alm` extra independently pins `alm-lifecycle-core` 0.2.0a1 at
+`a5aac7abbdf8a82d6fd89cc485d00e5d4961c66f` for read-only ledger inspection; see
+[the ALM ledger consumer note](alm-ledger-consumer.md). It installs neither Material
+Core nor Hub, and only its authenticated Git install path is supported.
+
 The `conversation-hub` extra independently pins v0.1.6 at
 `ea8d608b00aa1900132b2d2f33d90561143fa471`, marker-gated to Python >=3.12;
 its published wheel SHA-256 is
