@@ -219,6 +219,7 @@ class TestPhoneHomePackage(unittest.TestCase):
                 "Metadata-Version: 2.1\nName: material-core\nVersion: 0.2.0\n\n",
             )
             for name in ("material_core/__init__.py", "material_core/contract.py",
+                         "material_core/conversation.py",
                          "material_core/safety.py", "material_core/supplied.py"):
                 archive.writestr(name, b"")
         with self.assertRaisesRegex(ValueError, "independently pinned producer release"):

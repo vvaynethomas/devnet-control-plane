@@ -88,7 +88,7 @@ def require_material_core():
             )
             core_sources = _prepare_owned(
                 "material-core", CORE_VERSION, CORE_COMMIT, CORE_URL, CORE_WHEEL_SHA256,
-                "material_core", ("__init__", "contract", "safety", "supplied"),
+                "material_core", ("__init__", "contract", "conversation", "safety", "supplied"),
             )
             utility = load_package_from_snapshot(
                 "credential_patterns", "_dncp_verified_credential_patterns", utility_sources,

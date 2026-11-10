@@ -226,11 +226,14 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   one read transaction. It checks the application ID, user version and the three
   table shapes, then streams messages with SQLite `json_each`, so a large record
   is never loaded whole. It does not import or require the optional Hub package
-  and works on Python 3.10+. This is a second DNCP read path beside the pinned
+  and works on Python 3.10+. Indexing does require the optional `material`
+  extra: segmentation and redaction are done by the pinned Material Core
+  (`segment_messages`, `redact_text`), with no local fallback. Searching an
+  existing index does not need it. This is a second DNCP read path beside the pinned
   Hub `read_snapshot`; both enforce the same version-1 identifiers.
 - **What is stored.** Per revision: opaque conversation ID and revision, platform,
   title (or a flagged title derived from the first message), timestamps and
-  message count. Per chunk of about 8,000 characters: redacted `role: content`
+  message count. Per segment of at most 8,000 characters: redacted `role: content`
   text and the first and last message positions. Raw exports, `source_record`,
   export URIs and provenance are not copied. The cache therefore **contains
   personal conversation text**; it lives in the DNCP data directory, which is
@@ -264,9 +267,15 @@ devnet fabric index-hub --library 'C:\Private\ConversationHub\library.sqlite'
   unknown role, a non-increasing position or mismatched identity stops the run;
   revisions committed before it remain.
 
-Message extraction is isolated in `chunk_messages`, which accepts any ordered
-`(position, role, content)` stream, so a shared extractor can replace it later
-without changing storage or search.
+DNCP reads and validates the library and owns storage and search. It passes the
+ordered `(position, role, content)` stream to `material_core.segment_messages`
+(Material Core 0.2.0rc1, loaded through the same provenance-checked path as
+material ingestion), which redacts each message and returns bounded segments.
+The index format is 2: a cache written by the earlier DNCP-local chunker is
+discarded and refilled on the next `index-hub` run. On 2026-11-10 the same
+library was indexed through the shared segmenter into a temporary cache: 461
+revisions, 2,138 segments and 13.1 million characters in 10.8 s, the same
+totals as the earlier local chunker, with no segment over 8,000 characters.
 
 On 2026-11-09 the operator's own library (4.16 GB, 461 revisions of 253
 conversations, largest record 32.7 MB) was indexed into a temporary cache: 14.7 s

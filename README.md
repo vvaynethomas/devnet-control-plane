@@ -59,7 +59,7 @@ The public base package requires Python >=3.10 and no runtime dependencies or
 private credentials. Editable/source builds use locally available
 `setuptools>=61.0` and `wheel`. Material ingestion and repository digestion
 require the optional `material` extra, which pins private `material-core`
-v0.1.1rc2 to commit `31d0661fae0a89f80290d8e645a6872431cd6dd6` and its
+v0.2.0rc1 to commit `331a3cbe8522592fa8a70d3d3bf0973b95a7d729` and its
 Utility Chest credential-patterns dependency to commit
 `4e2a06146944b438f10525ef45c44cc101b417b5`. Fabric redaction can also use
 that shared utility independently through the optional `credential-patterns`
@@ -324,8 +324,8 @@ executed or fetched, and no LLM or automatic promotion is involved.
 
 The deterministic evidence contract and supplied-byte adapters live in the
 external [material-core](https://github.com/vvaynethomas/material-core) package,
-released as v0.1.1rc2 and pinned to commit
-`31d0661fae0a89f80290d8e645a6872431cd6dd6`. DNCP's `control_plane\material_ingestion.py`
+released as v0.2.0rc1 and pinned to commit
+`331a3cbe8522592fa8a70d3d3bf0973b95a7d729`. DNCP's `control_plane\material_ingestion.py`
 validates the phone-home payload and delegates to that core; phone-home still
 owns routing, receipt metadata and inbox persistence. This is a consumer boundary
 with no bundled core source. Independent licensing and ownership remain undecided.
@@ -498,8 +498,8 @@ installation, explicitly fetch/build the pinned core and validate its identity;
 DNCP never embeds it:
 ```bash
 python build_material_core.py --output-dir dist\material-core
-python release.py --material-core-wheel dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
-python install_material_core.py dist\material-core\material_core-0.1.1rc2-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
+python release.py --material-core-wheel dist\material-core\material_core-0.2.0rc1-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl --output-dir dist\devnet
+python install_material_core.py dist\material-core\material_core-0.2.0rc1-py3-none-any.whl --utility-wheel dist\material-core\utility_chest_credential_patterns-0.1.0rc2-py3-none-any.whl
 pip install --no-index --no-deps dist\devnet\devnet_control_plane-0.1.0-py3-none-any.whl
 pip check
 ```

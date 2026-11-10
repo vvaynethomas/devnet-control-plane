@@ -103,7 +103,7 @@ def _verify_producer_bytes(data: bytes, filename: str, name: str, version: str,
         metadata = Parser().parsestr(archive.read(metadata_paths[0]).decode("utf-8"))
         required = [f"{package}/__init__.py"]
         if package == "material_core":
-            required += [f"{package}/{module}.py" for module in ("contract", "safety", "supplied")]
+            required += [f"{package}/{module}.py" for module in ("contract", "conversation", "safety", "supplied")]
             if UTILITY_REQUIREMENT not in (metadata.get_all("Requires-Dist") or []):
                 raise ValueError("core does not declare the pinned transitive utility dependency")
         if not all(module in names for module in required):
