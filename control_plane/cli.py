@@ -38,6 +38,16 @@ def build_parser() -> argparse.ArgumentParser:
         "index-hub", help="Incrementally index an explicitly selected PRJ-0006 library; prints counts and timings only",
     )
     index_hub.add_argument("--library", type=Path, required=True)
+    alm = commands.add_parser("alm", help="Read-only ALM lifecycle ledger inspection; nothing is imported or trusted").add_subparsers(
+        dest="alm_operation", required=True,
+    )
+    alm_inspect = alm.add_parser(
+        "inspect", help="Validate an explicitly selected ledger with the pinned core and list its components",
+    )
+    alm_inspect.add_argument("--manifest", type=Path, required=True)
+    alm_inspect.add_argument("--root", type=Path, help="Also compare recorded file digests with files under this directory")
+    alm_inspect.add_argument("--kind", default="", help="Only components of this kind, e.g. skill, prompt, agent")
+    alm_inspect.add_argument("--id", default="", dest="component_id", help="Only the component with this ID")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -121,6 +131,11 @@ def main(argv: list[str] | None = None) -> int:
             index = FabricIndex(args.data_dir / "control_plane_fabric.sqlite", args.factory_root)
             print(json.dumps(index.index_hub(args.library), indent=2, ensure_ascii=False))
             return 0
+        if args.command == "alm":
+            from .alm_exchange import inspect_ledger
+            print(json.dumps(inspect_ledger(args.manifest, args.root, args.kind, args.component_id),
+                             indent=2, ensure_ascii=False))
+            return 0
         if args.command == "digest":
             from .repo_metabolizer import RepositoryMetabolizer
             from .fabric import FabricIndex
@@ -159,7 +174,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"error": str(exc), "code": exc.code, "status": exc.status}), file=sys.stderr)
         return 1
     except (OSError, sqlite3.Error, ValueError, TypeError, RuntimeError) as exc:
-        print(json.dumps({"error": str(exc), "status": getattr(exc, "status", 503)}), file=sys.stderr)
+        failure = {"error": str(exc), "status": getattr(exc, "status", 503)}
+        if isinstance(exc, ValueError) and isinstance(getattr(exc, "code", None), str):
+            failure["code"] = exc.code  # coded refusals such as AlmExchangeError
+        print(json.dumps(failure), file=sys.stderr)
         return 1
 
 

@@ -28,9 +28,11 @@ from control_plane.material_pins import (
     CORE_WHEEL_SHA256 as MATERIAL_CORE_WHEEL_SHA256, UTILITY_VERSION,
     UTILITY_COMMIT, UTILITY_WHEEL_SHA256, UTILITY_REQUIREMENT,
     HUB_VERSION, HUB_COMMIT, HUB_URL, HUB_WHEEL_SHA256,
+    ALM_VERSION, ALM_COMMIT, ALM_URL, ALM_WHEEL_SHA256,
 )
 MATERIAL_CORE_REQUIREMENT = f"material-core @ git+https://github.com/vvaynethomas/material-core@{MATERIAL_CORE_COMMIT}"
 HUB_REQUIREMENT = f"conversation-hub @ git+{HUB_URL}.git@{HUB_COMMIT}"
+ALM_REQUIREMENT = f"alm-lifecycle-core @ git+{ALM_URL}.git@{ALM_COMMIT}"
 
 
 def compute_sha256(data: bytes) -> str:
@@ -139,6 +141,8 @@ Provides-Extra: conversation-hub
 Requires-Dist: {HUB_REQUIREMENT} ; python_version >= "3.12" and extra == "conversation-hub"
 Provides-Extra: credential-patterns
 Requires-Dist: {UTILITY_REQUIREMENT} ; extra == "credential-patterns"
+Provides-Extra: alm
+Requires-Dist: {ALM_REQUIREMENT} ; extra == "alm"
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.30,<2; extra == "mcp"
 Provides-Extra: llm
@@ -278,7 +282,7 @@ def build_release(output_dir: Path, material_core_wheel: Path | None = None,
             "python": ">=3.10",
             "dependencies": [],
             "optional_extras": [MATERIAL_CORE_REQUIREMENT, HUB_REQUIREMENT + ' ; python_version >= "3.12"',
-                                UTILITY_REQUIREMENT, "openai>=1.0.0", "mcp>=1.30,<2"],
+                                UTILITY_REQUIREMENT, ALM_REQUIREMENT, "openai>=1.0.0", "mcp>=1.30,<2"],
         },
         "material_core_artifact": core_artifact,
         "material_core_source_commit": MATERIAL_CORE_COMMIT,
@@ -290,6 +294,8 @@ def build_release(output_dir: Path, material_core_wheel: Path | None = None,
                                                    "wheel_sha256": UTILITY_WHEEL_SHA256},
             "conversation-hub": {"version": HUB_VERSION, "commit": HUB_COMMIT,
                                  "wheel_sha256": HUB_WHEEL_SHA256},
+            "alm-lifecycle-core": {"version": ALM_VERSION, "commit": ALM_COMMIT,
+                                   "wheel_sha256": ALM_WHEEL_SHA256},
         },
         "artifacts": artifacts,
         "source_inventory": {
