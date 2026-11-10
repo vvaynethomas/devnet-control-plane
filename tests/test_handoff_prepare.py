@@ -91,10 +91,48 @@ class HandoffPrepareTests(unittest.TestCase):
         text = json.dumps(result)
         for private in ("PRIVATE-BODY", "PRIVATE-DERIVED", "dry run", "snippet", "abs_path"):
             self.assertNotIn(private, text)
-        self.assertTrue(all(result["coverage"][source]["searched"] for source in result["coverage"]))
+        self.assertEqual({source: item["searched"] for source, item in result["coverage"].items()},
+                         {"handoff": True, "fabric": True, "alm-ledger": False, "conversation-hub": True})
         # The draft plus the four missing fields is a valid packet.
         self.service.handoff_submit({**draft, "handoff_id": "next-1", "mode": "request",
                                      "sender": "a", "recipient": "b"})
+
+    def test_registered_alm_components_are_cited_by_identity_not_content(self) -> None:
+        from control_plane import alm_exchange
+        try:
+            core = alm_exchange.require_alm_core()
+        except alm_exchange.AlmExchangeError:
+            self.skipTest("Requires the optional pinned alm-lifecycle-core distribution")
+        import hashlib
+
+        def component(identity: str, path: str, content: str) -> dict:
+            return core.seal({
+                "id": identity, "kind": "skill", "version": "1.2.0", "upstream_refs": ["PRJ-0005"],
+                "files": [{"path": path, "sha256": hashlib.sha256(content.encode()).hexdigest(), "content": content}],
+                "dependencies": [], "origin": {"repository": "synthetic/repo", "revision": "0" * 40, "locator": path},
+            })
+
+        named = component("alm:skill:zoo:lemur-triage", "skills/triage.md", "PRIVATE-SKILL-BODY")
+        mention = component("skill.other", "skills/other.md", "This one only mentions a lemur in passing.")
+        manifest = self.root / "ledger.json"
+        manifest.write_text(json.dumps(core.envelope([named, mention])), encoding="utf-8")
+        unregistered = self.service.handoff_prepare({"query": "lemur triage"})
+        self.assertEqual(unregistered["coverage"]["alm-ledger"]["searched"], False)
+        self.assertIn("devnet alm register", unregistered["coverage"]["alm-ledger"]["reason"])
+        alm_exchange.register_ledger(self.service.data_dir, manifest)
+        result = self.service.handoff_prepare({"query": "lemur triage"})
+        matches = [m for m in result["matches"] if m["source"] == "alm-ledger"]
+        self.assertEqual([(m["ref"], m["revision"], m["trusted"], m["workspace_drift"]) for m in matches],
+                         [("alm:skill:zoo:lemur-triage@1.2.0", named["revision"], False, None)])
+        self.assertIn({"ref": "alm:skill:zoo:lemur-triage@1.2.0", "revision": named["revision"]},
+                      result["draft"]["source_refs"])
+        self.assertEqual(result["coverage"]["alm-ledger"], {"searched": True, "ledgers_read": 1, "ledgers_failed": 0})
+        self.assertNotIn("PRIVATE-SKILL-BODY", json.dumps(result))
+        self.assertIn("unevaluated", result["notice"])
+        manifest.write_text("not json", encoding="utf-8")
+        broken = self.service.handoff_prepare({"query": "lemur triage"})
+        self.assertEqual(broken["coverage"]["alm-ledger"], {"searched": False, "ledgers_read": 0, "ledgers_failed": 1})
+        self.assertEqual([m for m in broken["matches"] if m["source"] == "alm-ledger"], [])
 
     def test_missing_caches_are_reported_not_built(self) -> None:
         result = self.service.handoff_prepare({"query": "lemur migration"})
@@ -106,6 +144,7 @@ class HandoffPrepareTests(unittest.TestCase):
         self.assertFalse(result["coverage"]["conversation-hub"]["searched"])
         self.assertIn("index-hub", result["coverage"]["conversation-hub"]["reason"])
         self.assertEqual(result["coverage"]["handoff"], {"searched": True, "packets_scanned": 0})
+        self.assertFalse(result["coverage"]["alm-ledger"]["searched"])
 
     def test_conversation_hub_can_be_left_out_and_limit_and_cap_apply(self) -> None:
         self.add_conversations([(f"{n:02d}", f"Otter {n}", "user: otter survey", 0, f"2026-01-{n + 1:02d}T00:00:00Z")

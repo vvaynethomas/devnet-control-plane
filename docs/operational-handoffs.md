@@ -70,12 +70,13 @@ Input (all optional, but at least one of `query`, `requested_action` or `scope`)
 Search terms are the distinct words of `query`, or of `requested_action` plus
 `scope`, without common stop words, capped at 24.
 
-Three local sources are searched:
+Four local sources are searched:
 
 | Source | What matches | Reference written to the draft |
 |---|---|---|
 | Past handoffs | The newest 500 packets in this inbox that share an exact scope label or match a search term anywhere in the packet or its reported results (see ranked search below); ordered by shared scope, relevance, then recency. Each match reports its latest caller-reported state and a 200-character preview of the requested action, never context or result text. | `handoff:<handoff_id>`, revision `sha256:<content digest>` |
 | Fabric records | Lexical matches among knowledge and registry records in an already built Fabric cache. Ambient local session transcripts are excluded. | the record ID, revision `null` |
+| ALM ledgers | Components of explicitly registered ALM ledgers (see [the ALM consumer note](alm-ledger-consumer.md)) whose ID, kind, origin or file paths contain a search term. File content is not matched for citations. Each match reports kind, version, drift against its registered checkout and `trusted: false`. | `alm:<id>@<version>`, revision pinned to the record's hash |
 | Conversation Hub | Lexical matches in the explicitly indexed library (see [the consumer contract](conversation-library-consumer.md#fabric-index-over-the-library)). | `conversation-hub://<id>/<revision>#message=<n>`, revision pinned |
 
 **The draft carries references only.** No conversation text, snippet or record
@@ -86,7 +87,7 @@ source supplied one, never when it was derived from message text. A recipient
 reads a referenced conversation through Conversation Hub with its own access.
 
 The draft's `source_refs` hold the caller's references first, then matches
-taken alternately from the three sources up to the 20-entry packet limit;
+taken alternately from the four sources up to the 20-entry packet limit;
 `matches` lists every match with `rank` and `in_draft`, and
 `references_omitted` counts those that did not fit. `coverage` says which
 sources were searched: an unbuilt Fabric cache or an unindexed library is

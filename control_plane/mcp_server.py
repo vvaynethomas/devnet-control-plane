@@ -135,8 +135,8 @@ def tool_contracts() -> list[dict[str, Any]]:
     from .handoff_prepare import contract as handoff_prepare_contract
     contracts.extend([
         tool("handoff_prepare",
-             "Read-only: draft a handoff packet whose source_refs cite related past handoffs, Fabric records and "
-             "indexed Conversation Hub conversations. References only, no conversation text; nothing is stored "
+             "Read-only: draft a handoff packet whose source_refs cite related past handoffs, Fabric records, "
+             "components of registered ALM ledgers and indexed Conversation Hub conversations. References only, no conversation text; nothing is stored "
              "or submitted. Review the draft, then call handoff_submit.",
              handoff_prepare_contract(), []),
         tool("handoff_search",

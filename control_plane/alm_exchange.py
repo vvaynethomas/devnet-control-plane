@@ -243,12 +243,20 @@ def _workspace_state(root: Path | None, name: str, expected: str) -> str:
         return "missing"
 
 
-def ledger_components(data_dir: Path, query: str = "", limit: int = 20) -> dict[str, Any]:
+def component_ref(record: dict[str, Any]) -> str:
+    """Stable citation `alm:<id>@<version>`; IDs that already carry the prefix are not doubled."""
+    identity = record["id"] if record["id"].startswith("alm:") else "alm:" + record["id"]
+    return f"{identity}@{record['version']}"
+
+
+def ledger_components(data_dir: Path, query: str = "", limit: int = 20, *,
+                      match_content: bool = True) -> dict[str, Any]:
     """Components of every enabled registered ledger, matched lexically against `query`.
 
     Ledgers are read and validated on each call. A ledger that fails is reported, not
-    raised, so one bad file does not hide the others. File content is matched but never
-    returned. Relevance is not suitability, and nothing here is trusted.
+    raised, so one bad file does not hide the others. File content is matched (unless
+    `match_content` is false) but never returned. Relevance is not suitability, and nothing
+    here is trusted.
     """
     registered = _registrations(data_dir)
     enabled = [entry for entry in registered if entry["enabled"]]
@@ -278,13 +286,13 @@ def ledger_components(data_dir: Path, query: str = "", limit: int = 20) -> dict[
             name = record["id"].lower()
             blob = " ".join([record["kind"], record["origin"]["repository"], record["origin"]["locator"],
                              *(item["path"] for item in record["files"]),
-                             *(item["content"] for item in record["files"])]).lower()
+                             *((item["content"] for item in record["files"]) if match_content else ())]).lower()
             score = sum(5 if token in name else 2 if token in blob else 0 for token in tokens) if tokens else 1
             if score:
                 scored.append((-score, record["id"], record["version"], {
                     "id": record["id"], "category": "alm_component", "kind": record["kind"],
                     "version": record["version"], "revision": record["revision"],
-                    "ref": f"alm:{record['id']}@{record['version']}",
+                    "ref": component_ref(record),
                     "origin": record["origin"], "dependencies": record["dependencies"], "files": files,
                     "workspace_drift": drift, "ledger_sha256": ledger_digest, "manifest": entry["manifest"],
                     "trusted": False,
