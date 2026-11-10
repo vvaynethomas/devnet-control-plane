@@ -20,7 +20,7 @@ Authoritative product delivery queue for the **Development Network Control Plane
 | DNCP-012 | Automated ALM Agent Consumer Exchange: import versioned agent skills and prompts directly from the ALM product registry. | DNCP-001 | P3 | Open |
 | DNCP-013 | Read-only Decision Aid in Capability Discovery: discover canonical topic-tagged incubator records, show constraints/questions/alternatives/status/provenance, preserve uncertainty, and perform no dispatch or provider selection. | DNCP-002 | P2 | Awaiting acceptance (unreleased integration; synthetic fixture and HTTP coverage) |
 | DNCP-014 | Network phone-home front door: shared CLI, loopback API, optional official-SDK stdio MCP and existing UI; check available library/toolbox sources before building; append provisional intake with provenance/manual export and no canonical writes. Ordered ladder: network reuse/customization, external component check, existing-product extension, justified standalone only. Stop at evidence; unknown external check explicit; human final choice, no dispatch. Intended network library is a graph of released product-owned libraries; current coverage is one incubator plus bounded local Python modules, not graph-wide discovery. | DNCP-002 | P1 | Awaiting acceptance (bounded front-door implementation covered; graph-wide library coverage not implemented; first next-round gate) |
-| DNCP-015 | Read PRJ-0006's local conversation/provenance contract without duplicating collection; eventual Fabric, Conversations and Handoff integration. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Open (partial; explicit-path read-only CLI consumer of pinned v1 contract; UI wiring, contract approval and owner acceptance remain open) |
+| DNCP-015 | Read PRJ-0006's local conversation/provenance contract without duplicating collection; eventual Fabric, Conversations and Handoff integration. Require schema/identity, stale/unavailable-source diagnostics and read-only acceptance. | DNCP-014, PRJ-0006 consumer contract | P1 | Open (partial; explicit-path read-only CLI consumer of pinned v1 contract and explicit incremental Fabric index over a v1 library; MCP/UI wiring, Handoff integration, contract approval and owner acceptance remain open) |
 | DNCP-016 | Network Deployment & Infrastructure Observer: read repository edge and persistence manifests (vercel.json, package.json, Supabase schema pointers) in Portfolio discovery to surface edge deployment topology, build readiness, and drift alongside Git status without triggering mutations or remote deploys. | DNCP-002, DNCP-013 | P2 | Open |
 
 ## Evidence and Remaining Acceptance Gates
@@ -171,6 +171,22 @@ limits and synthetic test coverage. Only the CLI/adapter slice is implemented:
 Fabric indexing, Conversations UI, Handoff migration, producer contract approval
 (DEC-0016 remains draft), real-history acceptance and ownership reconciliation
 remain open. No watcher, sync, background scan or automatic handoff is added.
+
+### DNCP-015 Fabric Index Slice (2026-11-09)
+
+`devnet fabric index-hub --library <explicit-path>` streams a version-1 library
+read-only into incremental FTS5 tables beside the Fabric index, and
+`FabricIndex.search(include_hub=True)`, used by the workbench Fabric tab, returns
+those conversations with revision and message locators; phone-home and digest
+callers do not opt in. The earlier bounded reader is unchanged and still refuses real-size
+libraries; the indexer reads SQLite directly against the same version-1
+identifiers rather than through the pinned Hub package. One real library was
+indexed to a temporary cache with aggregate evidence only; see
+[the consumer contract](docs/conversation-library-consumer.md#fabric-index-over-the-library).
+Still open: an MCP tool and Conversations UI over the index, Handoff integration,
+entity-mention links, routing extraction through `material-core`, contract
+approval (DEC-0016 remains draft) and owner acceptance. No watcher, sync or
+background scan is added.
 
 ## Provisional Direction: Repository as the First Digestible Material
 

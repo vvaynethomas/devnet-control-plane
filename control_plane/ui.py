@@ -588,7 +588,7 @@ class ControlPlaneWorkbench:
         """
 
     def render_fabric_tab(self, query: str = "", kind_filter: str = "", entity_id: str = "") -> str:
-        search_data = self.fabric.search(query=query, kind_filter=kind_filter, limit=45)
+        search_data = self.fabric.search(query=query, kind_filter=kind_filter, limit=45, include_hub=True)
         counts = search_data["counts"]
 
         entity_panel = ""
@@ -1689,7 +1689,7 @@ def make_handler(workbench: ControlPlaneWorkbench) -> type[BaseHTTPRequestHandle
             if parsed.path == "/api/fabric":
                 q = qs.get("q", [""])[0]
                 kind = qs.get("kind", [""])[0]
-                self._send_json(workbench.fabric.search(query=q, kind_filter=kind))
+                self._send_json(workbench.fabric.search(query=q, kind_filter=kind, include_hub=True))
                 return
             if parsed.path == "/api/capabilities":
                 prob = qs.get("prob", [""])[0]
