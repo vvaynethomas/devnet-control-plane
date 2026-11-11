@@ -68,6 +68,42 @@ def build_parser() -> argparse.ArgumentParser:
     registry_list.add_argument("--status", default="", help="seed, growing, handed-off or retired")
     registry_list.add_argument("--initialized-by", default="", help="Only entries started by this node")
     registry.add_parser("show", help="Show one entry").add_argument("id")
+    commands.add_parser("bootstrap", help="Small start-here context for an agent in any repository")
+    playbook = commands.add_parser("playbook", help="Procedures from the registry, incubator and harvest playbooks").add_subparsers(
+        dest="playbook_operation", required=True)
+    playbook.add_parser("list")
+    playbook.add_parser("get").add_argument("name")
+    lessons = commands.add_parser("lessons", help="Ask the Epistemic Service").add_subparsers(dest="lessons_operation", required=True)
+    lessons_ask = lessons.add_parser("ask")
+    lessons_ask.add_argument("task")
+    lessons_ask.add_argument("--repo", default="")
+    lessons_ask.add_argument("--stage", default="", choices=("", "before-building", "before-claiming-done"))
+    commission = commands.add_parser("commission", help="Request, decide, home and track new work").add_subparsers(
+        dest="commission_operation", required=True)
+    for name in ("check", "open"):
+        sub_parser = commission.add_parser(name)
+        sub_parser.add_argument("--title", required=True)
+        sub_parser.add_argument("--need", required=True)
+        sub_parser.add_argument("--source-repo", default="")
+        if name == "open":
+            sub_parser.add_argument("--requested-by", required=True)
+            sub_parser.add_argument("--kind", default="capability")
+            sub_parser.add_argument("--existing-entry", default="")
+    decide = commission.add_parser("decide", help="Record the owner's decision")
+    decide.add_argument("id")
+    decide.add_argument("outcome")
+    decide.add_argument("--reason", required=True)
+    decide.add_argument("--decided-by", required=True)
+    for option in ("--home", "--prior-art", "--name", "--category", "--core"):
+        decide.add_argument(option, default="")
+    progress = commission.add_parser("progress")
+    progress.add_argument("id")
+    progress.add_argument("state")
+    progress.add_argument("--note", required=True)
+    progress.add_argument("--by", required=True)
+    progress.add_argument("--ref", default="")
+    commission.add_parser("get").add_argument("id")
+    commission.add_parser("list").add_argument("--state", default="")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -140,6 +176,46 @@ def dispatch(service: PhoneHome, args: argparse.Namespace) -> Any:
     return service.get(args.id)
 
 
+def build_commissioning(factory_root: Path, network_root: Path, data_dir: Path, registry_root: Path | None = None) -> Any:
+    from . import front_door, network_registry
+    from .commissioning import Commissioning
+    root = network_registry.find_registry_root(network_root, registry_root)
+
+    def capabilities(query: str) -> dict[str, Any]:
+        found = PhoneHome(factory_root, network_root, data_dir).check(query, 5)
+        return {key: found.get(key) for key in ("existing_tools_and_modules", "have_we_solved_this_before", "warnings") if key in found}
+
+    return Commissioning(root, data_dir, factory_root, network_root, capability_check=capabilities,
+                         lessons=lambda task, repo, stage: front_door.ask_lessons(network_root, task, repo, stage, 5))
+
+
+def front_door_dispatch(args: argparse.Namespace) -> Any:
+    from . import front_door, network_registry
+    root = network_registry.find_registry_root(args.network_root, getattr(args, "registry_root", None))
+    if args.command == "bootstrap":
+        return front_door.bootstrap(root, args.factory_root, args.network_root, args.data_dir)
+    if args.command == "playbook":
+        if args.playbook_operation == "list":
+            return front_door.list_playbooks(root, args.factory_root, args.network_root)
+        return front_door.get_playbook(args.name, root, args.factory_root, args.network_root)
+    if args.command == "lessons":
+        return front_door.ask_lessons(args.network_root, args.task, args.repo, args.stage)
+    desk = build_commissioning(args.factory_root, args.network_root, args.data_dir)
+    operation = args.commission_operation
+    if operation == "check":
+        return desk.check(args.title, args.need, args.source_repo)
+    if operation == "open":
+        return desk.open(args.title, args.need, args.requested_by, args.source_repo, args.kind, args.existing_entry)
+    if operation == "decide":
+        return desk.decide(args.id, args.outcome, args.reason, args.decided_by, args.home, args.prior_art,
+                           args.name, args.category, args.core)
+    if operation == "progress":
+        return desk.progress(args.id, args.state, args.note, args.by, args.ref)
+    if operation == "get":
+        return desk.get(args.id)
+    return desk.list(args.state)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -171,6 +247,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 result = network_registry.get_entry(root, args.id)
             print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0
+        if args.command in ("bootstrap", "playbook", "lessons", "commission"):
+            print(json.dumps(front_door_dispatch(args), indent=2, ensure_ascii=False))
             return 0
         if args.command == "digest":
             from .repo_metabolizer import RepositoryMetabolizer

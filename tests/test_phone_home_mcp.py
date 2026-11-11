@@ -27,6 +27,12 @@ class TestPhoneHomeMCP(unittest.TestCase):
                     "--network-root", str(self.network), "--data-dir", str(self.data), "mcp"]
             env = dict(os.environ)
             env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+            # A stand-in Epistemic Service: a child process the server must be able to run under stdio.
+            fake = Path(self.data).parent / "fake-epistemic" / "epistemic"
+            fake.mkdir(parents=True, exist_ok=True)
+            (fake / "__init__.py").write_text("", encoding="utf-8")
+            (fake / "__main__.py").write_text('import json; print(json.dumps({"matched": 0, "lessons": []}))', encoding="utf-8")
+            env["DEVNET_EPISTEMIC_ROOT"] = str(fake.parent)
             params = StdioServerParameters(command=sys.executable, args=args, env=env, cwd=self.root)
             async with stdio_client(params) as (reader, writer):
                 async with ClientSession(reader, writer) as session:
@@ -38,7 +44,18 @@ class TestPhoneHomeMCP(unittest.TestCase):
                         "handoff_submit", "handoff_result", "handoff_get", "handoff_list", "handoff_prepare", "handoff_search",
                         "devnet_get_portfolio_status", "devnet_get_next_actions", "devnet_search_fabric",
                         "devnet_find_precedents", "devnet_inspect_precedent", "devnet_get_context_handoff",
+                        "network_bootstrap", "playbook_list", "playbook_get", "lessons_ask", "registry_list", "registry_show",
+                        "commission_check", "commission_open", "commission_decide", "commission_progress",
+                        "commission_get", "commission_list",
                     })
+                    boot = await session.call_tool("network_bootstrap", {})
+                    self.assertFalse(boot.isError)
+                    self.assertIn("how", json.loads(boot.content[0].text))
+                    asked = await session.call_tool("lessons_ask", {"task": "anything"})
+                    self.assertEqual(json.loads(asked.content[0].text), {"matched": 0, "lessons": []},
+                                     "a child process must not inherit the protocol pipe")
+                    listed = await session.call_tool("commission_list", {})
+                    self.assertEqual(json.loads(listed.content[0].text)["count"], 0)
                     await session.send_ping()
                     checked = await session.call_tool("phone_home_check", {"query": "sqlite"})
                     self.assertFalse(checked.isError)

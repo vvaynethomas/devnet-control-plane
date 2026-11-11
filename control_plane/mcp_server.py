@@ -152,7 +152,87 @@ def tool_contracts() -> list[dict[str, Any]]:
              {"recipient": string(200), "scope": string(200), "limit": limit,
               "offset": {"type": "integer", "minimum": 0, "maximum": 2147483647, "default": 0}}, []),
     ])
+    stage = {"type": "string", "enum": ["", "before-building", "before-claiming-done"]}
+    contracts.extend([
+        tool("network_bootstrap",
+             "Start here from any repository: the network's principles, how to ask for lessons, request new work and "
+             "find procedures, plus the playbook names and what is open. Small on purpose.", {}, []),
+        tool("playbook_list", "Procedures (SKILL.md) owned by the registry, the incubator and the harvest playbooks.", {}, []),
+        tool("playbook_get", "One playbook in full. Read it before following it.", {"name": string(80, True)}, ["name"]),
+        tool("lessons_ask",
+             "Lessons from past work that apply to a task, from the Epistemic Service: concise claims with what to check, "
+             "limits, evidence refs and how well supported each is. Call before building and before saying work is done.",
+             {"task": string(2000, True), "repo": string(200), "stage": stage}, ["task"]),
+        tool("registry_list", "Network registry entries, optionally by kind, status or initializing node. Read-only.",
+             {"kind": string(40), "status": string(40), "initialized_by": string(80)}, []),
+        tool("registry_show", "One registry entry. Read-only.", {"id": string(120, True)}, ["id"]),
+        tool("commission_check",
+             "Read-only first step for a request for new work: registry candidates, existing capabilities, applicable "
+             "lessons and the playbook to follow. Read the candidates before opening anything.",
+             {"title": string(200, True), "need": string(4000, True), "source_repo": string(300)}, ["title", "need"]),
+        tool("commission_open",
+             "Record a request. Attaches to existing_entry when the check found it is already in the registry; otherwise "
+             "writes a new 'caught' registry entry. Returns the next step. Does not decide anything.",
+             {"title": string(200, True), "need": string(4000, True), "requested_by": string(200, True),
+              "source_repo": string(300), "kind": {"type": "string", "enum": ["product", "tool", "library", "skill", "research", "issue", "capability"]},
+              "existing_entry": string(120)}, ["title", "need", "requested_by"]),
+        tool("commission_decide",
+             "Record the owner's triage decision; never decide for them. outcome: idea, seed, routed, adopted, parked or "
+             "set-aside. routed/adopted need home. seed needs prior_art, name and category, and runs the incubator's "
+             "init-seed to create the repository and set the entry's home.",
+             {"id": string(80, True), "outcome": {"type": "string", "enum": ["idea", "seed", "routed", "adopted", "parked", "set-aside"]},
+              "reason": string(2000, True), "decided_by": string(200, True), "home": string(500),
+              "prior_art": string(4000), "name": string(64), "category": {"type": "string", "enum": ["", "products", "shared", "devnet", "research"]},
+              "core": string(600)}, ["id", "outcome", "reason", "decided_by"]),
+        tool("commission_progress",
+             "Report a decided commission as in-progress, blocked or done, with a note and optional evidence ref. "
+             "'done' is the worker's report, not the owner's acceptance.",
+             {"id": string(80, True), "state": {"type": "string", "enum": ["in-progress", "blocked", "done"]},
+              "note": string(2000, True), "by": string(200, True), "ref": string(500)}, ["id", "state", "note", "by"]),
+        tool("commission_get", "One commission with its history and registry entry.", {"id": string(80, True)}, ["id"]),
+        tool("commission_list", "Commissions, optionally by state.",
+             {"state": {"type": "string", "enum": ["", "awaiting-decision", "decided", "in-progress", "blocked", "done"]}}, []),
+    ])
     return contracts
+
+
+def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) -> Any:
+    from . import front_door, network_registry
+    from .cli import build_commissioning
+    root = network_registry.find_registry_root(service.network_root)
+    get = arguments.get
+    if name == "network_bootstrap":
+        return front_door.bootstrap(root, service.factory_root, service.network_root, service.data_dir)
+    if name == "playbook_list":
+        return front_door.list_playbooks(root, service.factory_root, service.network_root)
+    if name == "playbook_get":
+        return front_door.get_playbook(get("name"), root, service.factory_root, service.network_root)
+    if name == "lessons_ask":
+        return front_door.ask_lessons(service.network_root, get("task"), get("repo", ""), get("stage", ""))
+    if name == "registry_list":
+        return network_registry.list_entries(root, get("kind", ""), get("status", ""), get("initialized_by", ""))
+    if name == "registry_show":
+        return network_registry.get_entry(root, get("id"))
+    desk = build_commissioning(service.factory_root, service.network_root, service.data_dir)
+    if name == "commission_check":
+        return desk.check(get("title"), get("need"), get("source_repo", ""))
+    if name == "commission_open":
+        return desk.open(get("title"), get("need"), get("requested_by"), get("source_repo", ""),
+                         get("kind", "capability"), get("existing_entry", ""))
+    if name == "commission_decide":
+        return desk.decide(get("id"), get("outcome"), get("reason"), get("decided_by"), get("home", ""),
+                           get("prior_art", ""), get("name", ""), get("category", ""), get("core", ""))
+    if name == "commission_progress":
+        return desk.progress(get("id"), get("state"), get("note"), get("by"), get("ref", ""))
+    if name == "commission_get":
+        return desk.get(get("id"))
+    return desk.list(get("state", ""))
+
+
+FRONT_DOOR_TOOLS = frozenset({
+    "network_bootstrap", "playbook_list", "playbook_get", "lessons_ask", "registry_list", "registry_show",
+    "commission_check", "commission_open", "commission_decide", "commission_progress", "commission_get", "commission_list",
+})
 
 
 def search_fabric(service: PhoneHome, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -198,6 +278,8 @@ def create_mcp_server(service: PhoneHome) -> Any:
             allowed = contracts[name]["inputSchema"]["properties"]
             if set(arguments) - set(allowed):
                 raise PhoneHomeError("unknown tool argument fields")
+            if name in FRONT_DOOR_TOOLS:
+                return front_door_call(service, name, arguments)
             if name == "phone_home_check":
                 return service.check(arguments.get("query"), arguments.get("limit", 20))
             if name == "phone_home_submit":

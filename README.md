@@ -265,6 +265,14 @@ errors are explicit (400/409/413/503); unknown IDs return 404. The server requir
 a loopback Host, forbids cross-origin writes, and protects the UI form with CSRF.
 Local JSON clients may omit Origin; no CORS access is granted.
 
+### Front door and commissioning
+
+From any repository: `devnet bootstrap`, `devnet lessons ask`, `devnet playbook list|get`,
+`devnet registry list|show` and `devnet commission check|open|decide|progress|get|list`, with
+the same operations as MCP tools. `python install_front_door.py` makes them reachable from any
+folder and client. See [docs/front-door.md](docs/front-door.md) for the commissioning path and
+what is not done.
+
 ### MCP (optional, local stdio)
 
 Install locally with `pip install -e ".[mcp]"` (or install the built wheel's `mcp`
@@ -293,7 +301,8 @@ do **not** finish DNCP-010's planned live-state/Metabolizer server or imply a
 working delivery service. The handoff operations are also callable Python methods
 without MCP/UI; no product must use DNCP or the incubator as runtime mediation.
 
-Only `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, `fabric index-hub`, version/help are implemented CLI commands.
+Implemented CLI commands: `serve`, `mcp`, `phone-home`, `digest`, `conversation-library`, `fabric index-hub`,
+`alm`, `registry`, `bootstrap`, `playbook`, `lessons`, `commission`, version/help.
 
 **DNCP-015 Fabric index slice:** `devnet fabric index-hub --library <explicit-path>`
 incrementally copies redacted message text from a producer version-1 library into
