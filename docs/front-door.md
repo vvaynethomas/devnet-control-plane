@@ -9,7 +9,7 @@ The decisions behind it are working defaults; the registry's `PRINCIPLES.md` sta
 
 | Command | MCP tool | What it does |
 | --- | --- | --- |
-| `devnet bootstrap` | `network_bootstrap` | Under 5 KB: the principles, how to ask for things, playbook names, what is open |
+| `devnet bootstrap` | `network_bootstrap` | About 5 KB: the numbered principles, how to ask for things, playbook names, what is open |
 | `devnet lessons ask "<task>" --repo R --stage S` | `lessons_ask` | Asks the Epistemic Service, which owns lessons and evidence |
 | `devnet playbook list`, `get <name>` | `playbook_list`, `playbook_get` | Procedures read from the registry, the incubator and the harvest playbooks |
 | `devnet registry list`, `show <id>` | `registry_list`, `registry_show` | The registry, now also over MCP |
@@ -58,8 +58,9 @@ The `devnet` skill in the registry's `playbooks/` is the small bootstrap every a
   to read them.
 - `decide` cannot verify who is speaking. It now requires the owner's own words as `quote` and stores the
   decision with `verified: false`, so a decision is the caller's record of what the owner said, visible in
-  the registry history. Whether creating a repository (`seed`) should need an owner-run confirmation is an
-  open question for the owner; see the brief `recording-owner-decisions-over-mcp`.
+  the registry history. Creating a local repository (`seed`) needs no extra
+  confirmation once the owner has authorized the work: they answered this on 2026-11-11 ("record that
+  authorization and proceed"). The decision's quote is that record.
 - No notification when a commission is waiting; `commission list --state awaiting-decision`
   or `bootstrap` shows them.
 - The workbench GUI does not show commissions yet.

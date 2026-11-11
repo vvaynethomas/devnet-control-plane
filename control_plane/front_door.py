@@ -102,7 +102,13 @@ def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_
     """Small on purpose: where things are and how to ask, not the things themselves."""
     principles_path = Path(registry_root) / "PRINCIPLES.md"
     try:
-        principles = principles_path.read_text(encoding="utf-8")[:6000]
+        principles = principles_path.read_text(encoding="utf-8")
+        # Only the numbered principles: the file's preamble and its "how to reach" section repeat "how" below.
+        start = principles.find("\n1. ")
+        end = principles.find("\n## ", start + 1) if start >= 0 else -1
+        if start >= 0:
+            principles = principles[start + 1:end if end > 0 else None].strip() + f"\n(full text: {principles_path})"
+        principles = principles[:4000]
     except OSError:
         principles = f"(no PRINCIPLES.md at {principles_path})"
     try:
