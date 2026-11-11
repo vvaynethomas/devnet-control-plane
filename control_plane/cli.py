@@ -55,6 +55,19 @@ def build_parser() -> argparse.ArgumentParser:
     alm_register.add_argument("--root", type=Path, help="Checkout to compare recorded file digests with at query time")
     alm.add_parser("disable", help="Stop reading a registered ledger").add_argument("--manifest", type=Path, required=True)
     alm.add_parser("list", help="Show registered ledgers")
+    registry_parser = commands.add_parser(
+        "registry", help="Read-only network registry: what the network has started and where it lives",
+    )
+    registry_parser.add_argument(
+        "--registry-root", type=Path,
+        help="Registry checkout; defaults to DEVNET_REGISTRY_ROOT or <network-root>/devnet/network-registry/main",
+    )
+    registry = registry_parser.add_subparsers(dest="registry_operation", required=True)
+    registry_list = registry.add_parser("list", help="List entries, optionally filtered")
+    registry_list.add_argument("--kind", default="", help="product, tool, library, skill, research or issue")
+    registry_list.add_argument("--status", default="", help="seed, growing, handed-off or retired")
+    registry_list.add_argument("--initialized-by", default="", help="Only entries started by this node")
+    registry.add_parser("show", help="Show one entry").add_argument("id")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
         dest="digest_operation", required=True,
     )
@@ -148,6 +161,15 @@ def main(argv: list[str] | None = None) -> int:
                 result = alm_exchange.disable_ledger(args.data_dir, args.manifest)
             else:
                 result = alm_exchange.list_ledgers(args.data_dir)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+            return 0
+        if args.command == "registry":
+            from . import network_registry
+            root = network_registry.find_registry_root(args.network_root, args.registry_root)
+            if args.registry_operation == "list":
+                result = network_registry.list_entries(root, args.kind, args.status, args.initialized_by)
+            else:
+                result = network_registry.get_entry(root, args.id)
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 0
         if args.command == "digest":
