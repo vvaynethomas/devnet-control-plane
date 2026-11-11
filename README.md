@@ -508,6 +508,15 @@ pip check
 The optional ALM lifecycle core has the same kind of offline path, from its published
 wheel: `python install_alm_core.py <dir>\alm_lifecycle_core-0.2.0a1-py3-none-any.whl`
 (see [the ALM consumer note](docs/alm-ledger-consumer.md)).
+The verified installer records its added provenance file in the distribution's `RECORD`,
+so pip uninstall removes it and a subsequent verified reinstall works. For environments
+installed with an older script, rerun the current verified installer **before** uninstalling.
+If an old uninstall has already left a metadata-only distribution, recover in a fresh
+environment using the pinned wheels; do not bypass provenance checks or edit live metadata.
+An isolated Windows/Python 3.14.2 drill on 2026-11-10 verified invalid-provenance refusal,
+DNCP's absent-utility fallback, Material Core's explicit missing-dependency error, and
+verified reinstall restoring both consumers. This is recovery evidence, not a production
+rollback or consumer-owner acceptance.
 DNCP emits its own wheel/source archive and `RELEASE_MANIFEST.json`.
 The Material Core and Utility Chest wheels are downloaded from their
 independently digest-pinned producer releases; DNCP does not rebuild those

@@ -55,7 +55,10 @@ def _isolated_environment():
 
 
 _VERIFY_INSTALLED_SCRIPT = r"""
+import base64
+import csv
 import hashlib
+import io
 import json
 from importlib.metadata import distribution
 from pathlib import Path
@@ -99,6 +102,18 @@ evidence.write_text(json.dumps({
     "source_sha256": payload["source_sha256"],
     "direct_url": direct_url,
 }), encoding="utf-8")
+# pip removes only files recorded in RECORD. Track our added evidence so an
+# uninstall cannot leave a version-less distribution that blocks reinstall.
+relative_evidence = evidence.resolve().relative_to(root).as_posix()
+record_path = evidence.parent / "RECORD"
+with record_path.open(encoding="utf-8", newline="") as stream:
+    rows = [row for row in csv.reader(stream) if row[0] != relative_evidence]
+content = evidence.read_bytes()
+digest = base64.urlsafe_b64encode(hashlib.sha256(content).digest()).decode().rstrip("=")
+rows.append([relative_evidence, f"sha256={digest}", str(len(content))])
+record = io.StringIO(newline="")
+csv.writer(record, lineterminator="\n").writerows(rows)
+record_path.write_text(record.getvalue(), encoding="utf-8", newline="")
 """
 
 

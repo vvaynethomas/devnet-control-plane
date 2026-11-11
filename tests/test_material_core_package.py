@@ -195,6 +195,20 @@ class TestMaterialCorePackage(unittest.TestCase):
             )
             subprocess.run([str(python), "-I", "-c", check], cwd=hostile, check=True,
                            capture_output=True, text=True, timeout=30)
+            # Installer-owned provenance must disappear with the distribution, or
+            # importlib sees a version-less ghost and pip cannot reinstall it.
+            clean_env = {key: value for key, value in os.environ.items()
+                         if not key.upper().startswith(("PYTHON", "PIP_"))}
+            clean_env["PIP_CONFIG_FILE"] = os.devnull
+            subprocess.run([str(python), "-I", "-m", "pip", "uninstall", "-y", "dncp-test-guard"],
+                           cwd=root, env=clean_env, check=True, capture_output=True, timeout=30)
+            site_packages = environment / ("Lib/site-packages" if sys.platform == "win32" else
+                                           f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages")
+            self.assertFalse((site_packages / dist_info).exists(), "Uninstall left orphaned distribution metadata")
+            subprocess.run([str(python), "-I", "-c", script, str(wheel), str(payload)],
+                           cwd=root, env=clean_env, check=True, capture_output=True, timeout=120)
+            subprocess.run([str(python), "-I", "-c", check], cwd=root, check=True,
+                           capture_output=True, text=True, timeout=30)
 
     @unittest.skipUnless(os.environ.get("DNCP_PRIVATE_INTEGRATION") == "1",
                          "Set DNCP_PRIVATE_INTEGRATION=1 for authenticated published-wheel installation")
