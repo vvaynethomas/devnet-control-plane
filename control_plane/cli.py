@@ -114,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     recommend.add_argument("--question", required=True)
     recommend.add_argument("--by", required=True)
     recommend.add_argument("--sources", default="[]", help='JSON list of {"ref","says"}')
+    recommend.add_argument("--brief", default="", help="id of a stored decision brief (research-brief playbook)")
     recommend.add_argument("--alternatives", default="")
     withdraw = commission.add_parser("withdraw", help="Take back a commission opened by mistake")
     withdraw.add_argument("id")
@@ -203,7 +204,8 @@ def build_commissioning(factory_root: Path, network_root: Path, data_dir: Path, 
         return {key: found.get(key) for key in ("existing_tools_and_modules", "have_we_solved_this_before", "warnings") if key in found}
 
     return Commissioning(root, data_dir, factory_root, network_root, capability_check=capabilities,
-                         lessons=lambda task, repo, stage: front_door.ask_lessons(network_root, task, repo, stage, 5))
+                         lessons=lambda task, repo, stage: front_door.ask_lessons(network_root, task, repo, stage, 5),
+                         brief_lookup=lambda brief_id: front_door.get_brief(network_root, brief_id))
 
 
 def front_door_dispatch(args: argparse.Namespace) -> Any:
@@ -232,7 +234,7 @@ def front_door_dispatch(args: argparse.Namespace) -> Any:
         return desk.note(args.entry, args.text, args.by, args.source)
     if operation == "recommend":
         return desk.recommend(args.id, args.outcome, args.reasoning, args.question, args.by,
-                              json.loads(args.sources), args.alternatives)
+                              json.loads(args.sources), args.alternatives, args.brief)
     if operation == "withdraw":
         return desk.withdraw(args.id, args.reason, args.by)
     if operation == "get":

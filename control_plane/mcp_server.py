@@ -202,7 +202,7 @@ def tool_contracts() -> list[dict[str, Any]]:
               "sources": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": False,
                           "properties": {"ref": string(500, True), "says": string(600, True), "checked": string(20)},
                           "required": ["ref", "says"]}},
-              "alternatives": string(2000)}, ["id", "outcome", "reasoning", "question", "by"]),
+              "alternatives": string(2000), "brief": string(80)}, ["id", "outcome", "reasoning", "question", "by"]),
         tool("commission_withdraw", "Take back an undecided commission opened by mistake; the entry stays.",
              {"id": string(80, True), "reason": string(1000, True), "by": string(200, True)}, ["id", "reason", "by"]),
         tool("commission_get", "One commission with its history and registry entry.", {"id": string(80, True)}, ["id"]),
@@ -244,7 +244,7 @@ def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) ->
         return desk.progress(get("id"), get("state"), get("note"), get("by"), get("ref", ""))
     if name == "commission_recommend":
         return desk.recommend(get("id"), get("outcome"), get("reasoning"), get("question"), get("by"),
-                              get("sources"), get("alternatives", ""))
+                              get("sources"), get("alternatives", ""), get("brief", ""))
     if name == "commission_withdraw":
         return desk.withdraw(get("id"), get("reason"), get("by"))
     if name == "commission_get":

@@ -79,6 +79,12 @@ class CommissioningTests(unittest.TestCase):
             self.desk.progress(opened["id"], "in-progress", "started early", "agent")
         with self.assertRaises(CommissionError):
             self.desk.recommend(opened["id"], "seed", "Because.", "Build it?", "agent", sources=[{"ref": "x"}])  # a source says something
+        with self.assertRaises(CommissionError) as unsourced:
+            self.desk.recommend(opened["id"], "seed", "Because I think so.", "Build it?", "agent")
+        self.assertIn("unsourced", str(unsourced.exception))
+        with self.assertRaises(CommissionError):
+            Commissioning(self.registry, self.data, self.factory, self.network, brief_lookup=lambda b: {"unavailable": "none"}
+                          ).recommend(opened["id"], "seed", "Because.", "Build it?", "agent", brief="no-such-brief")
         advised = self.desk.recommend(opened["id"], "seed", "Nothing like it exists here.", "Start it as a product?", "agent",
                                       sources=[{"ref": "registry:search", "says": "No candidates."}])
         self.assertEqual((advised["state"], advised["recommendation"]["sources"][0]["checked"] != ""), ("awaiting-decision", True))

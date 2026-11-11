@@ -86,6 +86,18 @@ def ask_lessons(network_root: Path, task: str, repo: str = "", stage: str = "", 
     return json.loads(done.stdout)
 
 
+def get_brief(network_root: Path, brief_id: str) -> dict[str, Any]:
+    """A stored decision brief, read from the Epistemic Service."""
+    root = epistemic_root(network_root)
+    if not (root / "epistemic" / "__main__.py").is_file():
+        return {"unavailable": f"Epistemic Service not found at {root}"}
+    done = subprocess.run([sys.executable, "-m", "epistemic", "brief", "get", str(brief_id)], cwd=root, capture_output=True,
+                          text=True, encoding="utf-8", errors="replace", timeout=30, stdin=subprocess.DEVNULL)
+    if done.returncode != 0:
+        return {"unavailable": (done.stderr or done.stdout).strip()[:300]}
+    return json.loads(done.stdout)
+
+
 def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_dir: Path) -> dict[str, Any]:
     """Small on purpose: where things are and how to ask, not the things themselves."""
     principles_path = Path(registry_root) / "PRINCIPLES.md"
@@ -119,8 +131,9 @@ def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_
                                 "services inside another repository.",
             "note something said in passing": "registry_note(id, text, by): recorded on the existing entry, no commission, "
                                               "nothing queued for the owner.",
-            "bring the owner a decision": "research_brief(...) with sources and uncertainty, then commission_recommend. "
-                                          "Never ask the owner to choose between unsourced options.",
+            "bring the owner a decision": "Follow the research-brief playbook: research_start(question) on the epistemic "
+                                          "server, collect dated primary sources, brief_submit. Then commission_recommend "
+                                          "with its sources or brief id. Never ask the owner to choose between unsourced options.",
             "follow a procedure": "playbook_list(), then playbook_get(name). Read it in full first.",
             "see what exists": "registry_list(kind, status) and registry_show(id); phone_home_check(query) for capabilities.",
             "report what you learned": "lessons_propose on the Epistemic Service, with evidence and stated uncertainty.",

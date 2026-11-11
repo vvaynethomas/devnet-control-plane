@@ -72,11 +72,12 @@ def _slug(title: str) -> str:
 class Commissioning:
     def __init__(self, registry_root: Path, data_dir: Path, factory_root: Path, network_root: Path,
                  capability_check: Callable[[str], dict[str, Any]] | None = None,
-                 lessons: Callable[[str, str, str], dict[str, Any]] | None = None) -> None:
+                 lessons: Callable[[str, str, str], dict[str, Any]] | None = None,
+                 brief_lookup: Callable[[str], dict[str, Any]] | None = None) -> None:
         self.registry_root = Path(registry_root)
         self.folder = Path(data_dir) / "commissions"
         self.factory_root, self.network_root = Path(factory_root), Path(network_root)
-        self.capability_check, self.lessons = capability_check, lessons
+        self.capability_check, self.lessons, self.brief_lookup = capability_check, lessons, brief_lookup
 
     # ---- registry writes -----------------------------------------------------------------
     def _entry_path(self, entry_id: str) -> Path:
@@ -219,13 +220,20 @@ class Commissioning:
                 "next": "Nothing is asked of the owner. Commission it only when they ask for work on it."}
 
     def recommend(self, commission_id: str, outcome: str, reasoning: str, question: str, by: str,
-                  sources: list[dict[str, str]] | None = None, alternatives: str = "") -> dict[str, Any]:
+                  sources: list[dict[str, str]] | None = None, alternatives: str = "", brief: str = "") -> dict[str, Any]:
         """Triage's product: an advised outcome, its reasoning with sources, and the one question for the owner."""
         record = self.get(commission_id)
         if record["state"] not in ("triage", "awaiting-decision"):
             raise CommissionError(f"{commission_id} is '{record['state']}'; only a commission in triage takes a recommendation", 409)
         if outcome not in OUTCOMES:
             raise CommissionError(f"outcome must be one of: {', '.join(OUTCOMES)}")
+        if not sources and not brief:
+            raise CommissionError("a recommendation needs its sources (ref and what each says) or a stored decision brief; "
+                                  "the owner is not asked to choose between unsourced options", 400)
+        if brief and self.brief_lookup is not None:
+            found = self.brief_lookup(brief)
+            if not isinstance(found, dict) or found.get("unavailable") or found.get("error"):
+                raise CommissionError(f"brief {brief} could not be read: {found.get('unavailable') or found.get('error') if isinstance(found, dict) else found}", 404)
         clean = []
         for item in sources or []:
             if not isinstance(item, dict) or not item.get("ref") or not item.get("says"):
@@ -235,7 +243,8 @@ class Commissioning:
         record["state"] = "awaiting-decision"
         record["recommendation"] = {"outcome": outcome, "reasoning": _text(reasoning, "reasoning", 4000),
                                     "question": _text(question, "question", 600), "sources": clean,
-                                    "alternatives": _text(alternatives, "alternatives", 2000, required=False)}
+                                    "alternatives": _text(alternatives, "alternatives", 2000, required=False),
+                                    **({"brief": _text(brief, "brief", 80)} if brief else {})}
         record["next"] = f"Owner: {record['recommendation']['question']}"
         return self._save(record, "recommended", {"by": _text(by, "by", 200), "outcome": outcome})
 
