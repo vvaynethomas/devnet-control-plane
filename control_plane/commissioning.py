@@ -26,7 +26,9 @@ from typing import Any, Callable
 from . import network_registry
 
 OUTCOMES = ("idea", "seed", "routed", "adopted", "parked", "set-aside")
-STATES = ("awaiting-decision", "decided", "in-progress", "blocked", "done")
+# triage: an agent is preparing the case. awaiting-decision: a recommendation and a question exist, so it is the
+# owner's turn. Only that state belongs in the owner's queue.
+STATES = ("triage", "awaiting-decision", "decided", "in-progress", "blocked", "done", "withdrawn")
 KINDS = ("product", "tool", "library", "skill", "research", "issue", "capability")
 CATEGORIES = ("products", "shared", "devnet", "research")
 PLAYBOOK = "idea-triage"
@@ -197,12 +199,64 @@ class Commissioning:
             self._save_entry(entry, f"Catch {entry_id} ({commission_id})")
             attached = False
         waiting = entry["status"] in ("caught", "idea")
+        # Nothing reaches the owner's queue until triage has produced a recommendation and a question.
         record = {"id": commission_id, "title": title, "need": need, "requested_by": requested_by,
                   "source_repo": source_repo, "opened": _now(), "entry_id": entry["id"], "attached_to_existing": attached,
-                  "state": "awaiting-decision" if waiting else "decided", "check": checked, "history": [],
-                  "next": (f"Run the {PLAYBOOK} playbook on {entry['id']}, then the owner decides: {', '.join(OUTCOMES)}."
+                  "state": "triage" if waiting else "decided", "check": checked, "history": [],
+                  "next": (f"Run the {PLAYBOOK} playbook on {entry['id']} and call recommend with the outcome you advise, "
+                           f"your sourced reasoning and the question for the owner. It reaches the owner's queue only then."
                            if waiting else f"{entry['id']} is already '{entry['status']}' at {entry['home']}; report progress there.")}
         return self._save(record, "opened", {"by": requested_by, "attached": attached})
+
+    def note(self, entry_id: str, text: str, by: str, source: str = "") -> dict[str, Any]:
+        """Something said in passing. Recorded against the entry; no commission, nothing queued for anyone."""
+        entry = self._entry(entry_id)
+        notes = entry.setdefault("notes", [])
+        notes.append({"date": _today(), "by": _text(by, "by", 200), "text": _text(text, "text", 2000),
+                      **({"source": _text(source, "source", 500)} if source else {})})
+        self._save_entry(entry, f"Note on {entry['id']}")
+        return {"entry": entry["id"], "notes": len(notes), "queued_for_owner": False,
+                "next": "Nothing is asked of the owner. Commission it only when they ask for work on it."}
+
+    def recommend(self, commission_id: str, outcome: str, reasoning: str, question: str, by: str,
+                  sources: list[dict[str, str]] | None = None, alternatives: str = "") -> dict[str, Any]:
+        """Triage's product: an advised outcome, its reasoning with sources, and the one question for the owner."""
+        record = self.get(commission_id)
+        if record["state"] not in ("triage", "awaiting-decision"):
+            raise CommissionError(f"{commission_id} is '{record['state']}'; only a commission in triage takes a recommendation", 409)
+        if outcome not in OUTCOMES:
+            raise CommissionError(f"outcome must be one of: {', '.join(OUTCOMES)}")
+        clean = []
+        for item in sources or []:
+            if not isinstance(item, dict) or not item.get("ref") or not item.get("says"):
+                raise CommissionError("each source needs ref and says (what it says that bears on this)")
+            clean.append({"ref": _text(item["ref"], "source ref", 500), "says": _text(item["says"], "source says", 600),
+                          "checked": item.get("checked") or _today()})
+        record["state"] = "awaiting-decision"
+        record["recommendation"] = {"outcome": outcome, "reasoning": _text(reasoning, "reasoning", 4000),
+                                    "question": _text(question, "question", 600), "sources": clean,
+                                    "alternatives": _text(alternatives, "alternatives", 2000, required=False)}
+        record["next"] = f"Owner: {record['recommendation']['question']}"
+        return self._save(record, "recommended", {"by": _text(by, "by", 200), "outcome": outcome})
+
+    def withdraw(self, commission_id: str, reason: str, by: str) -> dict[str, Any]:
+        """Take back a commission opened by mistake. The entry and its history stay; only the request goes."""
+        record = self.get(commission_id)
+        untouched = record["state"] == "decided" and all(h["event"] == "opened" for h in record["history"])
+        if record["state"] not in ("triage", "awaiting-decision") and not untouched:
+            raise CommissionError(f"{commission_id} is '{record['state']}'; only an undecided or untouched commission can be withdrawn", 409)
+        entry = self._entry(record["entry_id"])
+        ref = f"commission:{commission_id}"
+        if ref in entry.get("refs", []):
+            entry["refs"].remove(ref)
+        if record["attached_to_existing"]:
+            self._save_entry(entry, f"Withdraw {commission_id} from {entry['id']}")
+        else:
+            entry.setdefault("notes", []).append({"date": _today(), "by": by, "text": f"Withdrawn request: {reason}"})
+            self._save_entry(entry, f"Withdraw {commission_id}; {entry['id']} stays as caught")
+        record["state"] = "withdrawn"
+        record["next"] = "Withdrawn. Nothing is asked of the owner."
+        return self._save(record, "withdrawn", {"by": _text(by, "by", 200), "reason": _text(reason, "reason", 1000)})
 
     def decide(self, commission_id: str, outcome: str, reason: str, decided_by: str, home: str = "",
                prior_art: str = "", name: str = "", category: str = "", core: str = "") -> dict[str, Any]:
@@ -260,8 +314,10 @@ class Commissioning:
             raise CommissionError("state must be in-progress, blocked or done")
         note, by = _text(note, "note", 2000), _text(by, "by", 200)
         ref = _text(ref, "ref", 500, required=False)
-        if record["state"] == "awaiting-decision":
+        if record["state"] in ("triage", "awaiting-decision"):
             raise CommissionError("the owner has not decided this one yet; record the decision first", 409)
+        if record["state"] == "withdrawn":
+            raise CommissionError("this commission was withdrawn", 409)
         entry = self._entry(record["entry_id"])
         if state == "in-progress" and entry["status"] == "seed":
             entry["status"] = "growing"

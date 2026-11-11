@@ -71,11 +71,18 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual((checked["playbook"]["name"], checked["lessons"]["stage"]), ("idea-triage", "before-building"))
         opened = self.desk.open("Trip planner", "Plan trips around saved places.", "owner", "products/x")
         entry_id = opened["entry_id"]
-        self.assertEqual((opened["state"], opened["entry"]["status"], opened["attached_to_existing"]), ("awaiting-decision", "caught", False))
+        self.assertEqual((opened["state"], opened["entry"]["status"], opened["attached_to_existing"]), ("triage", "caught", False))
         self.assertIn(f"commission:{opened['id']}", self.entry(entry_id)["refs"])
         self.assertEqual(self.entry(entry_id)["initialized_by"], "control-plane")
+        self.assertEqual(self.desk.list("awaiting-decision")["count"], 0, "nothing is queued for the owner before triage")
         with self.assertRaises(CommissionError):
             self.desk.progress(opened["id"], "in-progress", "started early", "agent")
+        with self.assertRaises(CommissionError):
+            self.desk.recommend(opened["id"], "seed", "Because.", "Build it?", "agent", sources=[{"ref": "x"}])  # a source says something
+        advised = self.desk.recommend(opened["id"], "seed", "Nothing like it exists here.", "Start it as a product?", "agent",
+                                      sources=[{"ref": "registry:search", "says": "No candidates."}])
+        self.assertEqual((advised["state"], advised["recommendation"]["sources"][0]["checked"] != ""), ("awaiting-decision", True))
+        self.assertEqual(self.desk.list("awaiting-decision")["count"], 1)
         with self.assertRaises(CommissionError):
             self.desk.decide(opened["id"], "seed", "Worth doing.", "owner")  # a seed needs prior art, a name and a category
         decided = self.desk.decide(opened["id"], "seed", "Worth doing now.", "owner", prior_art="Searched registry; nothing.",
@@ -88,7 +95,7 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual(done["state"], "done")
         self.assertIn("not acceptance", done["next"])
         self.assertIn("https://example.test/pr/1", self.entry(entry_id)["refs"])
-        self.assertEqual([h["event"] for h in done["history"]], ["opened", "decided", "in-progress", "done"])
+        self.assertEqual([h["event"] for h in done["history"]], ["opened", "recommended", "decided", "in-progress", "done"])
         self.assertTrue(any("Catch" in line for line in self.log()) and any("is growing" in line for line in self.log()))
         self.assertEqual(self.desk.list("done")["count"], 1)
 
@@ -103,6 +110,24 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual(len(list((self.registry / "entries").glob("*.json"))), 1)
         with self.assertRaises(CommissionError):
             self.desk.decide(opened["id"], "parked", "Not now.", "owner")  # already growing: nothing to decide
+
+    def test_passing_remarks_are_notes_and_mistaken_commissions_can_be_withdrawn(self) -> None:
+        noted = self.desk.note("2026-01-01-lesson-service", "Owner mentioned a design studio node in passing.", "agent")
+        self.assertFalse(noted["queued_for_owner"])
+        self.assertEqual(self.entry("2026-01-01-lesson-service")["notes"][0]["by"], "agent")
+        self.assertEqual(self.desk.list()["count"], 0, "a note creates no commission")
+        mistaken = self.desk.open("Studio", "Said in passing.", "owner", existing_entry="2026-01-01-lesson-service")
+        self.assertIn(f"commission:{mistaken['id']}", self.entry("2026-01-01-lesson-service")["refs"])
+        withdrawn = self.desk.withdraw(mistaken["id"], "Opened from a remark, not a request.", "agent")
+        self.assertEqual(withdrawn["state"], "withdrawn")
+        self.assertNotIn(f"commission:{mistaken['id']}", self.entry("2026-01-01-lesson-service").get("refs", []))
+        boot = front_door.bootstrap(self.registry, self.factory, self.network, self.data)
+        self.assertEqual(boot["state"]["open_commissions"], [])
+        with self.assertRaises(CommissionError):
+            self.desk.decide(mistaken["id"], "parked", "x", "owner")
+        fresh = self.desk.open("Brand new", "A thing.", "owner")
+        self.desk.withdraw(fresh["id"], "Changed my mind.", "agent")
+        self.assertEqual(self.entry(fresh["entry_id"])["status"], "caught", "the entry stays; nothing is deleted")
 
     def test_routed_and_parked_outcomes_record_the_decision(self) -> None:
         routed = self.desk.open("Dark mode", "The tracker needs a dark mode.", "owner", kind="issue")
@@ -120,7 +145,7 @@ class CommissioningTests(unittest.TestCase):
         boot = front_door.bootstrap(self.registry, self.factory, self.network, self.data)
         self.assertIn("The owner decides.", boot["principles"])
         self.assertEqual({p["name"] for p in boot["playbooks"]}, {"idea-triage", "init-seed"})
-        self.assertEqual(boot["state"]["open_commissions"][0]["state"], "awaiting-decision")
+        self.assertEqual(boot["state"]["open_commissions"][0]["state"], "triage")
         self.assertLess(len(json.dumps(boot)), 6000, "bootstrap stays small")
         self.assertIn("Steps.", front_door.get_playbook("idea-triage", self.registry, self.factory, self.network)["text"])
         with self.assertRaises(ValueError):
@@ -129,7 +154,7 @@ class CommissioningTests(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             code = main(["--factory-root", str(self.factory), "--network-root", str(self.network), "--data-dir", str(self.data),
-                         "commission", "list", "--state", "awaiting-decision"])
+                         "commission", "list", "--state", "triage"])
         self.assertEqual((code, json.loads(out.getvalue())["count"]), (0, 1))
 
 

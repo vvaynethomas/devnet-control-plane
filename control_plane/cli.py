@@ -102,6 +102,23 @@ def build_parser() -> argparse.ArgumentParser:
     progress.add_argument("--note", required=True)
     progress.add_argument("--by", required=True)
     progress.add_argument("--ref", default="")
+    note = commission.add_parser("note", help="Something said in passing: noted on the entry, no commission")
+    note.add_argument("entry")
+    note.add_argument("--text", required=True)
+    note.add_argument("--by", required=True)
+    note.add_argument("--source", default="")
+    recommend = commission.add_parser("recommend", help="Triage's advised outcome, sourced, with the one question for the owner")
+    recommend.add_argument("id")
+    recommend.add_argument("outcome")
+    recommend.add_argument("--reasoning", required=True)
+    recommend.add_argument("--question", required=True)
+    recommend.add_argument("--by", required=True)
+    recommend.add_argument("--sources", default="[]", help='JSON list of {"ref","says"}')
+    recommend.add_argument("--alternatives", default="")
+    withdraw = commission.add_parser("withdraw", help="Take back a commission opened by mistake")
+    withdraw.add_argument("id")
+    withdraw.add_argument("--reason", required=True)
+    withdraw.add_argument("--by", required=True)
     commission.add_parser("get").add_argument("id")
     commission.add_parser("list").add_argument("--state", default="")
     digest = commands.add_parser("digest", help="Opt-in read-only repository evidence; no automatic phone-home").add_subparsers(
@@ -211,6 +228,13 @@ def front_door_dispatch(args: argparse.Namespace) -> Any:
                            args.name, args.category, args.core)
     if operation == "progress":
         return desk.progress(args.id, args.state, args.note, args.by, args.ref)
+    if operation == "note":
+        return desk.note(args.entry, args.text, args.by, args.source)
+    if operation == "recommend":
+        return desk.recommend(args.id, args.outcome, args.reasoning, args.question, args.by,
+                              json.loads(args.sources), args.alternatives)
+    if operation == "withdraw":
+        return desk.withdraw(args.id, args.reason, args.by)
     if operation == "get":
         return desk.get(args.id)
     return desk.list(args.state)

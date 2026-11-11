@@ -46,7 +46,7 @@ class TestPhoneHomeMCP(unittest.TestCase):
                         "devnet_find_precedents", "devnet_inspect_precedent", "devnet_get_context_handoff",
                         "network_bootstrap", "playbook_list", "playbook_get", "lessons_ask", "registry_list", "registry_show",
                         "commission_check", "commission_open", "commission_decide", "commission_progress",
-                        "commission_get", "commission_list",
+                        "commission_get", "commission_list", "registry_note", "commission_recommend", "commission_withdraw",
                     })
                     boot = await session.call_tool("network_bootstrap", {})
                     self.assertFalse(boot.isError)

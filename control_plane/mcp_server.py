@@ -189,9 +189,25 @@ def tool_contracts() -> list[dict[str, Any]]:
              "'done' is the worker's report, not the owner's acceptance.",
              {"id": string(80, True), "state": {"type": "string", "enum": ["in-progress", "blocked", "done"]},
               "note": string(2000, True), "by": string(200, True), "ref": string(500)}, ["id", "state", "note", "by"]),
+        tool("registry_note",
+             "Record something the owner said in passing against an existing registry entry. Creates no commission and "
+             "puts nothing in the owner's queue. Use this, not commission_open, unless the owner asked for work.",
+             {"id": string(120, True), "text": string(2000, True), "by": string(200, True), "source": string(500)},
+             ["id", "text", "by"]),
+        tool("commission_recommend",
+             "Triage's product: the outcome you advise, your reasoning, sources (ref plus what each says) and the single "
+             "question for the owner. Moves a commission from triage to awaiting-decision, the owner's queue.",
+             {"id": string(80, True), "outcome": {"type": "string", "enum": ["idea", "seed", "routed", "adopted", "parked", "set-aside"]},
+              "reasoning": string(4000, True), "question": string(600, True), "by": string(200, True),
+              "sources": {"type": "array", "maxItems": 20, "items": {"type": "object", "additionalProperties": False,
+                          "properties": {"ref": string(500, True), "says": string(600, True), "checked": string(20)},
+                          "required": ["ref", "says"]}},
+              "alternatives": string(2000)}, ["id", "outcome", "reasoning", "question", "by"]),
+        tool("commission_withdraw", "Take back an undecided commission opened by mistake; the entry stays.",
+             {"id": string(80, True), "reason": string(1000, True), "by": string(200, True)}, ["id", "reason", "by"]),
         tool("commission_get", "One commission with its history and registry entry.", {"id": string(80, True)}, ["id"]),
         tool("commission_list", "Commissions, optionally by state.",
-             {"state": {"type": "string", "enum": ["", "awaiting-decision", "decided", "in-progress", "blocked", "done"]}}, []),
+             {"state": {"type": "string", "enum": ["", "triage", "awaiting-decision", "decided", "in-progress", "blocked", "done", "withdrawn"]}}, []),
     ])
     return contracts
 
@@ -214,6 +230,8 @@ def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) ->
     if name == "registry_show":
         return network_registry.get_entry(root, get("id"))
     desk = build_commissioning(service.factory_root, service.network_root, service.data_dir)
+    if name == "registry_note":
+        return desk.note(get("id"), get("text"), get("by"), get("source", ""))
     if name == "commission_check":
         return desk.check(get("title"), get("need"), get("source_repo", ""))
     if name == "commission_open":
@@ -224,13 +242,19 @@ def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) ->
                            get("prior_art", ""), get("name", ""), get("category", ""), get("core", ""))
     if name == "commission_progress":
         return desk.progress(get("id"), get("state"), get("note"), get("by"), get("ref", ""))
+    if name == "commission_recommend":
+        return desk.recommend(get("id"), get("outcome"), get("reasoning"), get("question"), get("by"),
+                              get("sources"), get("alternatives", ""))
+    if name == "commission_withdraw":
+        return desk.withdraw(get("id"), get("reason"), get("by"))
     if name == "commission_get":
         return desk.get(get("id"))
     return desk.list(get("state", ""))
 
 
 FRONT_DOOR_TOOLS = frozenset({
-    "network_bootstrap", "playbook_list", "playbook_get", "lessons_ask", "registry_list", "registry_show",
+    "network_bootstrap", "playbook_list", "playbook_get", "lessons_ask", "registry_list", "registry_show", "registry_note",
+    "commission_recommend", "commission_withdraw",
     "commission_check", "commission_open", "commission_decide", "commission_progress", "commission_get", "commission_list",
 })
 

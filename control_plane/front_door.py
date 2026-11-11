@@ -104,7 +104,7 @@ def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_
     open_commissions = []
     for path in sorted(folder.glob("COM-*.json")) if folder.is_dir() else []:
         record = json.loads(path.read_text(encoding="utf-8"))
-        if record["state"] != "done":
+        if record["state"] not in ("done", "withdrawn"):
             open_commissions.append({"id": record["id"], "state": record["state"], "next": record["next"]})
     playbooks = list_playbooks(registry_root, factory_root, network_root)
     return {
@@ -114,8 +114,13 @@ def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_
         "how": {
             "ask for lessons": "lessons_ask(task, repo, stage) before building (stage before-building) and before saying "
                                "work is done (stage before-claiming-done).",
-            "request new work": "commission_check(title, need), then commission_open(...). Do not start new products, "
-                                "tools or services inside another repository.",
+            "request new work": "Only when the owner asks for work: commission_check(title, need), then commission_open(...), "
+                                "then triage and commission_recommend with sources. Do not start new products, tools or "
+                                "services inside another repository.",
+            "note something said in passing": "registry_note(id, text, by): recorded on the existing entry, no commission, "
+                                              "nothing queued for the owner.",
+            "bring the owner a decision": "research_brief(...) with sources and uncertainty, then commission_recommend. "
+                                          "Never ask the owner to choose between unsourced options.",
             "follow a procedure": "playbook_list(), then playbook_get(name). Read it in full first.",
             "see what exists": "registry_list(kind, status) and registry_show(id); phone_home_check(query) for capabilities.",
             "report what you learned": "lessons_propose on the Epistemic Service, with evidence and stated uncertainty.",
