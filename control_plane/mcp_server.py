@@ -177,13 +177,13 @@ def tool_contracts() -> list[dict[str, Any]]:
               "source_repo": string(300), "kind": {"type": "string", "enum": ["product", "tool", "library", "skill", "research", "issue", "capability"]},
               "existing_entry": string(120)}, ["title", "need", "requested_by"]),
         tool("commission_decide",
-             "Record the owner's triage decision; never decide for them. outcome: idea, seed, routed, adopted, parked or "
+             "Record the owner's triage decision as their words (quote); never decide for them. The decision is stored as your record, marked unverified. outcome: idea, seed, routed, adopted, parked or "
              "set-aside. routed/adopted need home. seed needs prior_art, name and category, and runs the incubator's "
              "init-seed to create the repository and set the entry's home.",
              {"id": string(80, True), "outcome": {"type": "string", "enum": ["idea", "seed", "routed", "adopted", "parked", "set-aside"]},
-              "reason": string(2000, True), "decided_by": string(200, True), "home": string(500),
+              "reason": string(2000, True), "decided_by": string(200, True), "quote": string(1000, True), "home": string(500),
               "prior_art": string(4000), "name": string(64), "category": {"type": "string", "enum": ["", "products", "shared", "devnet", "research"]},
-              "core": string(600)}, ["id", "outcome", "reason", "decided_by"]),
+              "core": string(600)}, ["id", "outcome", "reason", "decided_by", "quote"]),
         tool("commission_progress",
              "Report a decided commission as in-progress, blocked or done, with a note and optional evidence ref. "
              "'done' is the worker's report, not the owner's acceptance.",
@@ -239,7 +239,7 @@ def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) ->
                          get("kind", "capability"), get("existing_entry", ""))
     if name == "commission_decide":
         return desk.decide(get("id"), get("outcome"), get("reason"), get("decided_by"), get("home", ""),
-                           get("prior_art", ""), get("name", ""), get("category", ""), get("core", ""))
+                           get("prior_art", ""), get("name", ""), get("category", ""), get("core", ""), get("quote", ""))
     if name == "commission_progress":
         return desk.progress(get("id"), get("state"), get("note"), get("by"), get("ref", ""))
     if name == "commission_recommend":

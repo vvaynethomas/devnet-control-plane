@@ -268,15 +268,18 @@ class Commissioning:
         return self._save(record, "withdrawn", {"by": _text(by, "by", 200), "reason": _text(reason, "reason", 1000)})
 
     def decide(self, commission_id: str, outcome: str, reason: str, decided_by: str, home: str = "",
-               prior_art: str = "", name: str = "", category: str = "", core: str = "") -> dict[str, Any]:
+               prior_art: str = "", name: str = "", category: str = "", core: str = "", quote: str = "") -> dict[str, Any]:
         record = self.get(commission_id)
         if outcome not in OUTCOMES:
             raise CommissionError(f"outcome must be one of: {', '.join(OUTCOMES)}")
         reason, decided_by = _text(reason, "reason", 2000), _text(decided_by, "decided_by", 200)
+        # Who is speaking cannot be verified here, so a decision is the caller's record of what the owner said:
+        # their words are required and shown wherever the decision appears, and it is marked unverified.
+        quote = _text(quote, "quote (the owner's own words giving this decision)", 1000)
         entry = self._entry(record["entry_id"])
         if entry["status"] not in ("caught", "idea", "parked", "set-aside"):
             raise CommissionError(f"{entry['id']} is already '{entry['status']}'; nothing to decide", 409)
-        entry["decision"] = {"date": _today(), "reason": reason, "decided_by": decided_by}
+        entry["decision"] = {"date": _today(), "reason": reason, "decided_by": decided_by, "quote": quote, "verified": False}
         if core:
             entry["core"] = _text(core, "core", 600)
         seeded = None
@@ -301,7 +304,8 @@ class Commissioning:
             "routed": f"Do the work in {entry['home']}; report progress with commission progress.",
             "adopted": f"Set up {entry['home']}; report progress with commission progress.",
         }.get(outcome, f"Nothing to build now ({outcome}). Reopen by deciding again when that changes.")
-        return self._save(record, "decided", {"outcome": outcome, "reason": reason, "decided_by": decided_by,
+        return self._save(record, "decided", {"outcome": outcome, "reason": reason, "decided_by": decided_by, "quote": quote,
+                                             "verified": False,
                                              **({"seeded": seeded} if seeded else {})})
 
     def _init_seed(self, entry: dict[str, Any], name: str, category: str) -> dict[str, Any]:

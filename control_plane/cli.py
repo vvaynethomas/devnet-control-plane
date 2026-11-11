@@ -94,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     decide.add_argument("outcome")
     decide.add_argument("--reason", required=True)
     decide.add_argument("--decided-by", required=True)
+    decide.add_argument("--quote", required=True, help="the owner's own words giving the decision")
     for option in ("--home", "--prior-art", "--name", "--category", "--core"):
         decide.add_argument(option, default="")
     progress = commission.add_parser("progress")
@@ -227,7 +228,7 @@ def front_door_dispatch(args: argparse.Namespace) -> Any:
         return desk.open(args.title, args.need, args.requested_by, args.source_repo, args.kind, args.existing_entry)
     if operation == "decide":
         return desk.decide(args.id, args.outcome, args.reason, args.decided_by, args.home, args.prior_art,
-                           args.name, args.category, args.core)
+                           args.name, args.category, args.core, args.quote)
     if operation == "progress":
         return desk.progress(args.id, args.state, args.note, args.by, args.ref)
     if operation == "note":

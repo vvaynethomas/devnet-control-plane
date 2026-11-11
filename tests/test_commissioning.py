@@ -90,11 +90,15 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual((advised["state"], advised["recommendation"]["sources"][0]["checked"] != ""), ("awaiting-decision", True))
         self.assertEqual(self.desk.list("awaiting-decision")["count"], 1)
         with self.assertRaises(CommissionError):
-            self.desk.decide(opened["id"], "seed", "Worth doing.", "owner")  # a seed needs prior art, a name and a category
+            self.desk.decide(opened["id"], "seed", "Worth doing.", "owner", quote="yes")  # a seed needs prior art, a name and a category
+        with self.assertRaises(CommissionError) as unquoted:
+            self.desk.decide(opened["id"], "seed", "Worth doing now.", "owner", prior_art="x", name="trip-planner", category="products")
+        self.assertIn("quote", str(unquoted.exception))
         decided = self.desk.decide(opened["id"], "seed", "Worth doing now.", "owner", prior_art="Searched registry; nothing.",
-                                   name="trip-planner", category="products")
+                                   name="trip-planner", category="products", quote="Yes, start the trip planner.")
         self.assertEqual((decided["state"], decided["entry"]["status"], decided["entry"]["home"]), ("decided", "seed", "products/trip-planner"))
-        self.assertEqual(self.entry(entry_id)["decision"]["decided_by"], "owner")
+        self.assertEqual((self.entry(entry_id)["decision"]["decided_by"], self.entry(entry_id)["decision"]["quote"],
+                          self.entry(entry_id)["decision"]["verified"]), ("owner", "Yes, start the trip planner.", False))
         going = self.desk.progress(opened["id"], "in-progress", "First version under way.", "agent")
         self.assertEqual(going["entry"]["status"], "growing")
         done = self.desk.progress(opened["id"], "done", "First version works.", "agent", ref="https://example.test/pr/1")
@@ -115,7 +119,7 @@ class CommissioningTests(unittest.TestCase):
         self.assertEqual((opened["state"], opened["attached_to_existing"]), ("decided", True))
         self.assertEqual(len(list((self.registry / "entries").glob("*.json"))), 1)
         with self.assertRaises(CommissionError):
-            self.desk.decide(opened["id"], "parked", "Not now.", "owner")  # already growing: nothing to decide
+            self.desk.decide(opened["id"], "parked", "Not now.", "owner", quote="not now")  # already growing: nothing to decide
 
     def test_passing_remarks_are_notes_and_mistaken_commissions_can_be_withdrawn(self) -> None:
         noted = self.desk.note("2026-01-01-lesson-service", "Owner mentioned a design studio node in passing.", "agent")
@@ -130,7 +134,7 @@ class CommissioningTests(unittest.TestCase):
         boot = front_door.bootstrap(self.registry, self.factory, self.network, self.data)
         self.assertEqual(boot["state"]["open_commissions"], [])
         with self.assertRaises(CommissionError):
-            self.desk.decide(mistaken["id"], "parked", "x", "owner")
+            self.desk.decide(mistaken["id"], "parked", "x", "owner", quote="x")
         fresh = self.desk.open("Brand new", "A thing.", "owner")
         self.desk.withdraw(fresh["id"], "Changed my mind.", "agent")
         self.assertEqual(self.entry(fresh["entry_id"])["status"], "caught", "the entry stays; nothing is deleted")
@@ -138,13 +142,13 @@ class CommissioningTests(unittest.TestCase):
     def test_routed_and_parked_outcomes_record_the_decision(self) -> None:
         routed = self.desk.open("Dark mode", "The tracker needs a dark mode.", "owner", kind="issue")
         with self.assertRaises(CommissionError):
-            self.desk.decide(routed["id"], "routed", "Belongs in the tracker.", "owner")  # routed needs a home
-        entry = self.desk.decide(routed["id"], "routed", "Belongs in the tracker.", "owner", home="products/tracker")["entry"]
+            self.desk.decide(routed["id"], "routed", "Belongs in the tracker.", "owner", quote="put it in the tracker")  # routed needs a home
+        entry = self.desk.decide(routed["id"], "routed", "Belongs in the tracker.", "owner", home="products/tracker", quote="put it in the tracker")["entry"]
         self.assertEqual((entry["status"], entry["home"]), ("routed", "products/tracker"))
         parked = self.desk.open("Moon base", "A base on the moon.", "owner")
-        self.assertEqual(self.desk.decide(parked["id"], "parked", "No room now.", "owner")["entry"]["status"], "parked")
+        self.assertEqual(self.desk.decide(parked["id"], "parked", "No room now.", "owner", quote="park it")["entry"]["status"], "parked")
         with self.assertRaises(CommissionError):
-            self.desk.decide(parked["id"], "launch", "x", "owner")
+            self.desk.decide(parked["id"], "launch", "x", "owner", quote="x")
 
     def test_front_door_bootstrap_playbooks_and_cli(self) -> None:
         self.desk.open("Dark mode", "The tracker needs a dark mode.", "owner")
