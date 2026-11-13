@@ -36,7 +36,7 @@ def _front_matter(text: str) -> dict[str, str]:
     return fields
 
 
-def list_playbooks(registry_root: Path, factory_root: Path, network_root: Path) -> dict[str, Any]:
+def list_playbooks(registry_root: Path, factory_root: Path, network_root: Path, query: str = "") -> dict[str, Any]:
     found, missing = [], []
     for owner, folder in playbook_sources(registry_root, factory_root, network_root):
         if not folder.is_dir():
@@ -48,7 +48,19 @@ def list_playbooks(registry_root: Path, factory_root: Path, network_root: Path) 
             except OSError:
                 continue
             found.append({"name": fields.get("name") or path.parent.name, "owner": owner,
-                          "description": fields.get("description", "")[:300], "path": str(path)})
+                          "description": fields.get("description", ""), "path": str(path)})
+    if query.strip():
+        stop_words = {"a", "an", "and", "are", "can", "do", "for", "how", "i", "in", "is", "it", "of", "the", "to", "what"}
+        terms = set(re.findall(r"\w+", query.casefold())) - stop_words
+        ranked = []
+        for item in found:
+            name = set(re.findall(r"\w+", item["name"].casefold()))
+            description = set(re.findall(r"\w+", item["description"].casefold()))
+            score = len(terms & name) * 3 + len(terms & description)
+            if score:
+                ranked.append((score, item))
+        ranked.sort(key=lambda pair: -pair[0])
+        found = [item for _, item in ranked]
     return {"count": len(found), "playbooks": found, "sources_missing": missing,
             "note": "A playbook is a procedure, read from its owner's repository. Read it in full before following it."}
 
@@ -140,7 +152,7 @@ def bootstrap(registry_root: Path, factory_root: Path, network_root: Path, data_
             "bring the owner a decision": "Follow the research-brief playbook: research_start(question) on the epistemic "
                                           "server, collect dated primary sources, brief_submit. Then commission_recommend "
                                           "with its sources or brief id. Never ask the owner to choose between unsourced options.",
-            "follow a procedure": "playbook_list(), then playbook_get(name). Read it in full first.",
+            "follow a procedure": "playbook_list(query) searches by task; playbook_get(name) returns the instructions.",
             "see what exists": "registry_list(kind, status) and registry_show(id); phone_home_check(query) for capabilities.",
             "report what you learned": "lessons_propose on the Epistemic Service, with evidence and stated uncertainty.",
             "from a shell": "devnet bootstrap | lessons ask | commission ... | playbook list|get | registry list|show",

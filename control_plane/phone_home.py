@@ -6,12 +6,13 @@ from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from pathlib import Path
 import sqlite3
 from typing import Any
 import uuid
 
-from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PROJECT_ROOT
+from . import DEFAULT_DATA_DIR, DEV_NETWORK_ROOT, FACTORY_ROOT, PROJECT_ROOT, front_door, network_registry
 from .capabilities import discover_capabilities, scan_network_modules
 from .fabric import FabricIndex, SECRET_RE, collect_knowledge_entities
 from .operational_handoffs import NOTICE as HANDOFF_NOTICE, validate as validate_handoff
@@ -322,7 +323,14 @@ class PhoneHome:
         freshness = self.fabric.freshness()
         if freshness["built"] and not freshness["rebuilt_at"]:
             warnings.append("Legacy Fabric cache freshness is unknown; rebuild explicitly.")
-        reusable = tools + modules + capabilities["related_patterns"] + capabilities["have_we_solved_this_before"]
+        procedures = front_door.list_playbooks(network_registry.find_registry_root(self.network_root),
+                                              self.factory_root, self.network_root, q)
+        query_words = set(re.findall(r"\w+", q.casefold()))
+        playbooks = [{**item, "kind": "playbook", "title": item["name"], "source_available": True,
+                      "lookup": {"tool": "playbook_get", "arguments": {"name": item["name"]}}}
+                     for item in procedures["playbooks"]
+                     if set(item["name"].casefold().split("-")) <= query_words]
+        reusable = playbooks + tools + modules + capabilities["related_patterns"] + capabilities["have_we_solved_this_before"]
         # Conversation mentions and provisional intake alone are not evidence of a reusable capability.
         candidates = [r for r in reusable if r.get("kind") != "conversation"
                       and r.get("source_available", True) and (r.get("abs_path") or r.get("path"))][:limit]
@@ -365,7 +373,8 @@ class PhoneHome:
             "schema_version": 1, "query": q, "checked_at": utc_now(), "mode": "read-only-advisory",
             "coverage": {"canonical_available": canonical_available, "factory_root": str(self.factory_root),
                          "network_root": str(self.network_root), "fabric": freshness, "modules": module_coverage,
-                         "alm_ledgers": alm["coverage"], "complete_network_inventory": False},
+                         "alm_ledgers": alm["coverage"], "playbook_sources_missing": procedures["sources_missing"],
+                         "complete_network_inventory": False},
             "warnings": warnings,
             "decision_ladder": ladder,
             "existing_tools_and_modules": (tools + modules)[:limit],

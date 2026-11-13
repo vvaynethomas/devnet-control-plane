@@ -157,7 +157,7 @@ def tool_contracts() -> list[dict[str, Any]]:
         tool("network_bootstrap",
              "Start here from any repository: the network's principles, how to ask for lessons, request new work and "
              "find procedures, plus the playbook names and what is open. Small on purpose.", {}, []),
-        tool("playbook_list", "Procedures (SKILL.md) owned by the registry, the incubator and the harvest playbooks.", {}, []),
+        tool("playbook_list", "Find a procedure by task, or list all playbooks.", {"query": string(2000)}, []),
         tool("playbook_get", "One playbook in full. Read it before following it.", {"name": string(80, True)}, ["name"]),
         tool("lessons_ask",
              "Lessons from past work that apply to a task, from the Epistemic Service: concise claims with what to check, "
@@ -220,7 +220,7 @@ def front_door_call(service: PhoneHome, name: str, arguments: dict[str, Any]) ->
     if name == "network_bootstrap":
         return front_door.bootstrap(root, service.factory_root, service.network_root, service.data_dir)
     if name == "playbook_list":
-        return front_door.list_playbooks(root, service.factory_root, service.network_root)
+        return front_door.list_playbooks(root, service.factory_root, service.network_root, get("query", ""))
     if name == "playbook_get":
         return front_door.get_playbook(get("name"), root, service.factory_root, service.network_root)
     if name == "lessons_ask":

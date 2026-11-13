@@ -11,7 +11,7 @@ The decisions behind it are working defaults; the registry's `PRINCIPLES.md` sta
 | --- | --- | --- |
 | `devnet bootstrap` | `network_bootstrap` | About 5 KB: the numbered principles, how to ask for things, playbook names, what is open |
 | `devnet lessons ask "<task>" --repo R --stage S` | `lessons_ask` | Asks the Epistemic Service, which owns lessons and evidence |
-| `devnet playbook list`, `get <name>` | `playbook_list`, `playbook_get` | Procedures read from the registry, the incubator and the harvest playbooks |
+| `devnet playbook list --query "<task>"`, `get <name>` | `playbook_list`, `playbook_get` | Search names and descriptions, then read the procedure. Omit the query to list everything. |
 | `devnet registry list`, `show <id>` | `registry_list`, `registry_show` | The registry, now also over MCP |
 | `devnet commission check/open/decide/progress/get/list` | `commission_*` | The commissioning path, below |
 
@@ -19,6 +19,15 @@ Nothing is copied into the control plane. Playbooks and principles are read wher
 lessons are asked of the Epistemic Service's own command line (`DEVNET_EPISTEMIC_ROOT`, else
 `devnet/epistemic-service/main`). If a service is missing, the answer says `unavailable` and
 the rest still works.
+
+The provisional home for a shared network procedure is the registry's `playbooks/`.
+Keep procedures that change with an owning product or harvesting adapter alongside
+that implementation. The front door searches all three existing sources. For
+example, asking how to triage a caught idea finds `idea-triage`. A reuse check
+that includes all the words in a playbook name also returns its retrieval command.
+ALM ledgers describe versioned components. The Epistemic Service keeps evidence,
+lessons and decision briefs about their use. Revisit placement when a real task
+reveals a stale copy, an unavailable source or a procedure that agents cannot find.
 
 ## Commissioning path
 

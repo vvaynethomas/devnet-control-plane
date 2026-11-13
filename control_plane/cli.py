@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("bootstrap", help="Small start-here context for an agent in any repository")
     playbook = commands.add_parser("playbook", help="Procedures from the registry, incubator and harvest playbooks").add_subparsers(
         dest="playbook_operation", required=True)
-    playbook.add_parser("list")
+    playbook.add_parser("list").add_argument("--query", default="", help="Search playbook names and descriptions by task")
     playbook.add_parser("get").add_argument("name")
     lessons = commands.add_parser("lessons", help="Ask the Epistemic Service").add_subparsers(dest="lessons_operation", required=True)
     lessons_ask = lessons.add_parser("ask")
@@ -216,7 +216,7 @@ def front_door_dispatch(args: argparse.Namespace) -> Any:
         return front_door.bootstrap(root, args.factory_root, args.network_root, args.data_dir)
     if args.command == "playbook":
         if args.playbook_operation == "list":
-            return front_door.list_playbooks(root, args.factory_root, args.network_root)
+            return front_door.list_playbooks(root, args.factory_root, args.network_root, args.query)
         return front_door.get_playbook(args.name, root, args.factory_root, args.network_root)
     if args.command == "lessons":
         return front_door.ask_lessons(args.network_root, args.task, args.repo, args.stage)
