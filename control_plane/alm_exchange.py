@@ -87,15 +87,33 @@ def clear_alm_core_cache() -> None:
 
 
 def _component(registry: Any, record: dict[str, Any]) -> dict[str, Any]:
-    used_by = registry.inspect(record)["used_by"]
+    inspection = registry.inspect(record)
     return {
         "id": record["id"], "kind": record["kind"], "version": record["version"],
         "revision": record["revision"], "upstream_refs": record["upstream_refs"],
         "origin": record["origin"], "dependencies": record["dependencies"],
         # File content stays in the ledger; only its path and digest are reported.
         "files": [{"path": item["path"], "sha256": item["sha256"]} for item in record["files"]],
-        "used_by": used_by,
+        "used_by": inspection["used_by"],
     }
+
+
+def _evaluated_uses(registry: Any, record: dict[str, Any]) -> list[dict[str, Any]]:
+    inspection = registry.inspect(record)
+    subjects = [record] + [registry.resolve(pin) for pin in inspection["used_by"]]
+    result = []
+    for subject in subjects:
+        if subject is not record and subject["kind"] != "configuration":
+            continue
+        evaluations = []
+        for pin in registry.inspect(subject)["evaluations"]:
+            evidence = registry.resolve(pin)
+            evaluations.append({**pin, "mode": evidence["mode"], "dataset": evidence["dataset"],
+                                "outcomes": dict(Counter(case["outcome"] for case in evidence["cases"])),
+                                "failed_cases": [case["id"] for case in evidence["cases"] if case["outcome"] == "fail"]})
+        result.append({"id": subject["id"], "revision": subject["revision"], "kind": subject["kind"],
+                       "evaluations": evaluations})
+    return result
 
 
 def _read_registry(manifest: Path, root: Path | None = None) -> tuple[Any, bytes]:
@@ -157,7 +175,8 @@ def inspect_ledger(manifest: Path, root: Path | None = None, kind: str = "", com
                    "kinds": dict(sorted(Counter(r["kind"] for r in records).items()))},
         "valid": True, "trusted": False, "files_compared_with_root": root is not None,
         "live_deployment_verified": False,
-        "components": [_component(registry, record) for record in selected],
+        "components": [{**_component(registry, record), "evaluated_uses": _evaluated_uses(registry, record)}
+                       for record in selected],
         "releases": releases,
         "notice": NOTICE,
     }
@@ -297,6 +316,7 @@ def ledger_components(data_dir: Path, query: str = "", limit: int = 20, *,
                     "origin": record["origin"], "dependencies": record["dependencies"], "files": files,
                     "workspace_drift": drift, "ledger_sha256": ledger_digest, "manifest": entry["manifest"],
                     "trusted": False,
+                    "evaluated_uses": _evaluated_uses(registry, record),
                 }))
         ledgers.append({"manifest": entry["manifest"], "root": entry["root"], "status": "read",
                         "sha256": ledger_digest, "entries": len(registry.records),

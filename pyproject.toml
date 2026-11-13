@@ -45,7 +45,7 @@ conversation-hub = [
 ]
 
 alm = [
-    "alm-lifecycle-core @ git+https://github.com/vvaynethomas/agent-lifecycle.git@a5aac7abbdf8a82d6fd89cc485d00e5d4961c66f",
+    "alm-lifecycle-core @ git+https://github.com/vvaynethomas/agent-lifecycle.git@a65426548c2579eafcf281aa2fc196c6a0cef2d8",
 ]
 
 [project.scripts]

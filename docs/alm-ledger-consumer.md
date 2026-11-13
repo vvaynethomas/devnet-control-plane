@@ -24,11 +24,11 @@ names the file.
 
 ## Pinned validator
 
-The optional `alm` extra pins `alm-lifecycle-core` 0.2.0a1 at commit
-`a5aac7abbdf8a82d6fd89cc485d00e5d4961c66f`
-([release v0.2.0a1](https://github.com/vvaynethomas/agent-lifecycle/releases/tag/v0.2.0a1);
-published wheel SHA-256
-`c041ca3ceb33eb947f4e3ca7f60751d02a867a04306e5c0cf284eca500fe83a2`). The core has no
+The optional `alm` extra pins `alm-lifecycle-core` 0.2.0a2 at commit
+`a65426548c2579eafcf281aa2fc196c6a0cef2d8`
+(local wheel built from the pinned revision;
+local wheel SHA-256
+`7eea5ab9f6b978e168819c0d6c686168bd817ea01d7770e60072eadfa8f41e14`). The core has no
 runtime dependencies. DNCP loads it the same way as Material Core: it checks the installed
 version and PEP 610 source commit, captures the distribution-owned sources and executes
 those bytes under a private namespace. DNCP contains no second validator.
@@ -37,11 +37,11 @@ There are two supported install paths:
 
 - **Authenticated Git** (`pip install "devnet-control-plane[alm]"`). PEP 610 is source
   provenance, not post-install byte-integrity verification; on this path the wheel digest
-  above is producer evidence that the running consumer does not enforce.
-- **Offline, from the published wheel:**
+  above is a local build digest used by the offline install path.
+- **Offline, from the digest-pinned local wheel:**
 
   ```powershell
-  python install_alm_core.py <dir>\alm_lifecycle_core-0.2.0a1-py3-none-any.whl
+  python install_alm_core.py <dir>\alm_lifecycle_core-0.2.0a2-py3-none-any.whl
   ```
 
   The installer reads the wheel once, refuses it unless its name, SHA-256, metadata and
@@ -141,7 +141,7 @@ The isolated install matrix (`test_consumer_extras.py`, `DNCP_PRIVATE_INTEGRATIO
 includes the `alm` extra for both wheel builders: the pinned commit is installed, the core
 loads and this module's tests pass in that environment, and environments without the
 extra report `capability_missing`. The offline path has a unit test for the wheel checks
-and an end-to-end test that runs only when `DNCP_ALM_WHEEL` points at the published
+and an end-to-end test that runs only when `DNCP_ALM_WHEEL` points at the pinned
 wheel: the installer's result loads, while a bare wheel install and a file changed after
 installation are refused. Both gated tests passed on 2026-11-10.
 
